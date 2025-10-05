@@ -1,0 +1,35 @@
+# Node
+node_modules/
+
+# Env
+.env
+.env.*
+
+# Build output
+dist/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Coverage
+coverage/
+
+# Jest cache
+jest-cache/
+
+# Misc
+/*.tgz
+# local overrides
+.local
+
