@@ -73,6 +73,7 @@ export async function deleteUserRaw(_id: any, authId?: string) {
   return result.deletedCount;
 }
 
+let server: any;
 (async () => {
   await client.connect();
 
@@ -103,7 +104,8 @@ export async function deleteUserRaw(_id: any, authId?: string) {
       const token = jwt.sign({ authId: id, userType, roles, merchantId }, process.env.JWT_SECRET, { expiresIn: jwtExpiresIn });
       return sendResponse(req, res, { ok: true, token, user });
     } catch (err: any) {
-      return sendResponse(req, res, { ok: false, error: err.message }, 500);
+      const statusCode = err.statusCode || 500;
+      return sendResponse(req, res, { ok: false, error: err.message }, statusCode);
     }
   });
 
@@ -129,29 +131,75 @@ export async function deleteUserRaw(_id: any, authId?: string) {
   });
 
   // Realm風API
-  app.post('/mongo', verifyToken, async (req: Request, res: Response) => {
-    const { collection, method, query, document, options } = req.body as any;
+  app.post('/verse-gate', verifyToken, async (req: Request, res: Response) => {
+    const { collection, method, query, document, options, filter, update, replacement, pipeline, documents } = req.body as any;
     try {
       const db = client.db(DB_NAME);
       const col = db.collection(collection);
       let result;
       switch (method) {
         case 'find':
-          result = await col.find(query || {}, options || {}).toArray();
+          result = await col.find(filter || {}, options || {}).toArray();
+          break;
+        case 'findOne':
+          result = await col.findOne(filter || {}, options || {});
+          break;
+        case 'findOneAndUpdate':
+          result = await col.findOneAndUpdate(filter, update, options || {});
+          break;
+        case 'findOneAndReplace':
+          result = await col.findOneAndReplace(filter, replacement, options || {});
+          break;
+        case 'findOneAndDelete':
+          result = await col.findOneAndDelete(filter || {}, options || {});
+          break;
+        case 'aggregate':
+          result = await col.aggregate(pipeline).toArray();
+          break;
+        case 'count':
+          result = await col.countDocuments(filter || {}, options || {});
           break;
         case 'insertOne':
           result = await col.insertOne(document);
+          break;
+        case 'insertMany':
+          result = await col.insertMany(documents);
+          break;
+        case 'deleteOne':
+          result = await col.deleteOne(filter || {});
+          break;
+        case 'deleteMany':
+          result = await col.deleteMany(filter || {});
+          break;
+        case 'updateOne':
+          result = await col.updateOne(filter, update, options || {});
+          break;
+        case 'updateMany':
+          result = await col.updateMany(filter, update, options || {});
+          break;
+        case 'watch':
+          const changeStream = col.watch(options || {});
+          result = [];
+          for await (const change of changeStream) {
+            result.push(change);
+          }
+          break;
+        case 'drop':
+          result = await col.drop();
           break;
         default:
           return sendResponse(req, res, { ok: false, error: 'Unsupported method' }, 400);
       }
       return sendResponse(req, res, { ok: true, result });
     } catch (err: any) {
-      return sendResponse(req, res, { ok: false, error: err.message }, 500);
+      const statusCode = err.statusCode || 500;
+      return sendResponse(req, res, { ok: false, error: err.message }, statusCode);
     }
   });
 
-  app.listen(process.env.PORT || 3000, () => {
+  server = app.listen(process.env.PORT || 3000, () => {
     console.log(`🚀 Verse API server started on port ${process.env.PORT || 3000}`);
   });
 })();
+
+export { server, client };
