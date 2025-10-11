@@ -5,8 +5,8 @@ export interface UserBase extends MongoDocBase {
   _id?: DefaultId
   authId: string
   passwordHash?: string
-  userType?: 'staff' | 'customer'
-  roles: string[]
+  userType: 'provisional' | 'staff' | 'customer';
+  roles?: string[]
   merchantId?: ObjectId
 }
 

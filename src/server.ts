@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { User } from './models/user-types';
+import {AuthServer} from "./auth-token";
 const express = require('express');
 const dotenv = require('dotenv');
 const { MongoClient } = require('mongodb');
@@ -13,9 +14,25 @@ const app = express();
 app.use(express.text({ type: 'application/ejson' }));
 app.use(express.json());
 
-const client = new MongoClient(process.env.MONGO_URI);
+const mongoUri = process.env.MONGO_URI;
+const isTest = process.env.NODE_ENV === 'test';
+// Client binding (created inside startServer()). Exported at bottom to avoid duplicate export declarations.
+let client: any; // MongoClient will be assigned in startServer()
+
 const DB_NAME = process.env.DATA_BASE_NAME || 'verse';
-const USERS_COLLECTION = process.env.USERS_COLLECTION_NAME || 'users';
+const USERS_COLLECTION = process.env.USERS_COLLECTION_NAME;
+if (!USERS_COLLECTION) throw new Error('Environment variable USERS_COLLECTION is required but was not set')
+const PROVISIONAL_AUTH_ID = process.env.PROVISIONAL_AUTH_ID;
+if (!PROVISIONAL_AUTH_ID) throw new Error('Environment variable PROVISIONAL_AUTH_ID is required but was not set')
+const PROVISIONAL_AUTH_SECRET_MASTER = process.env.PROVISIONAL_AUTH_SECRET_MASTER;
+if (!PROVISIONAL_AUTH_SECRET_MASTER) throw new Error('Environment variable PROVISIONAL_AUTH_SECRET_MASTER is required but was not set')
+const PROVISIONAL_AUTH_DOMAIN = process.env.PROVISIONAL_AUTH_DOMAIN;
+if (!PROVISIONAL_AUTH_DOMAIN) throw new Error('Environment variable PROVISIONAL_AUTH_DOMAIN is required but was not set')
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
+if (!JWT_EXPIRES_IN) throw new Error('Environment variable JWT_EXPIRES_IN is required but was not set')
+
+// provisional login passwd auth server
+const plpaServer = new AuthServer({ secretMaster: PROVISIONAL_AUTH_SECRET_MASTER, authDomain: PROVISIONAL_AUTH_DOMAIN });
 
 // Response helper: if client accepts application/ejson, send EJSON; otherwise send standard JSON
 function sendResponse(req: any, res: any, obj: any, status = 200) {
@@ -36,13 +53,27 @@ function verifyToken(req: Request, res: Response, next: NextFunction) {
   if (!token) return sendResponse(req, res, { ok: false, error: 'No token provided' }, 401);
   try {
     (req as any).user = jwt.verify(token, process.env.JWT_SECRET);
+
+    // If the token payload indicates a provisional user, restrict access.
+    // Allow only the registerUser and login endpoints for provisional users.
+    // Note: /login is typically public (no token), but we include it here
+    // for completeness if routes change in the future.
+    const provisionalAllowedPaths = new Set(['/registerUser', '/login']);
+    const userType = (req as any).user && (req as any).user.userType;
+    if (userType === 'provisional') {
+      const path = (req as any).path || (req as any).originalUrl || '';
+      if (!provisionalAllowedPaths.has(path)) {
+        return sendResponse(req, res, { ok: false, error: 'provisional user cannot access this endpoint' }, 403);
+      }
+    }
+
     next();
   } catch {
     return sendResponse(req, res, { ok: false, error: 'Invalid token' }, 403);
   }
 }
 
-// トークンチェック無しのユーザー登録関数
+// User registration
 export async function registerUserRaw(user: User, password: string) {
   if (!user || typeof user !== 'object') throw new Error('User document is required');
   if (!user.authId) throw new Error('authId is required');
@@ -59,7 +90,7 @@ export async function registerUserRaw(user: User, password: string) {
   return user;
 }
 
-// トークンチェック無しのユーザー削除関数
+// User deletion
 export async function deleteUserRaw(_id: any, authId?: string) {
   if (!_id && !authId) throw new Error('Either _id or authId must be provided');
   const userCol = client.db(DB_NAME).collection(USERS_COLLECTION);
@@ -74,7 +105,33 @@ export async function deleteUserRaw(_id: any, authId?: string) {
 }
 
 let server: any;
-(async () => {
+
+// Helper to determine if server is already listening.
+function isServerListening(s: any) {
+  try {
+    return !!(s && typeof s.listening === 'boolean' ? s.listening : s.address && s.address());
+  } catch (_e) {
+    return false;
+  }
+}
+
+async function startServer() {
+  // If server already started and listening, reuse it.
+  if (isServerListening(server)) return server;
+  // Ensure we have a numeric port value available for listen()/logs.
+  const port = Number(process.env.PORT) || 3000;
+  // create client here (delay creation until startServer is called)
+  // Use conservative options in test mode to reduce background timers/sockets.
+  const opts = isTest
+    ? {
+        minPoolSize: 0,
+        maxPoolSize: 1,
+        connectTimeoutMS: 10000,
+        serverSelectionTimeoutMS: 5000,
+        heartbeatFrequencyMS: 1000,
+      }
+    : undefined;
+  client = opts ? new MongoClient(mongoUri, opts) : new MongoClient(mongoUri);
   await client.connect();
 
   // Middleware: if body was sent as application/ejson, parse it into BSON types
@@ -89,6 +146,29 @@ let server: any;
     next();
   });
 
+  app.post('/provisional-login', async (req: Request, res: Response) => {
+    const { authId, password } = req.body;
+    if (!authId || !password) return sendResponse(req, res, { ok: false, error: 'authId and password are required' }, 400);
+    try {
+      if (authId !== PROVISIONAL_AUTH_ID) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
+      const passwordValid = await plpaServer.validatePassword(password);
+      if (!passwordValid || !passwordValid.ok) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
+
+      const token = jwt.sign({ userType: 'provisional' }, process.env.JWT_SECRET, { expiresIn: '5s' });
+      // DEBUG: decode and log the token payload for inspection
+      try {
+        const decoded = jwt.decode(token);
+        console.log('TOKEN PAYLOAD (provisional-login):', decoded);
+      } catch (e) {
+        console.log('Failed to decode provisional token payload', e);
+      }
+      return sendResponse(req, res, { ok: true, token, user: {} });
+    } catch (err: any) {
+      const statusCode = err.statusCode || 500;
+      return sendResponse(req, res, { ok: false, error: err.message }, statusCode);
+    }
+  });
+
   // Login endpoint: Authenticate user and issue JWT
   app.post('/login', async (req: Request, res: Response) => {
     const { authId, password } = req.body;
@@ -99,9 +179,15 @@ let server: any;
       if (!user || !user.passwordHash) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
       const valid = await bcrypt.compare(password, user.passwordHash);
       if (!valid) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
-      const { authId: id, userType, roles, merchantId } = user;
-      const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '1h';
-      const token = jwt.sign({ authId: id, userType, roles, merchantId }, process.env.JWT_SECRET, { expiresIn: jwtExpiresIn });
+      const { _id, userType, roles, merchantId } = user;
+      const token = jwt.sign({ _id, userType, roles, merchantId }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+      // DEBUG: decode and log the token payload for inspection
+      try {
+        const decoded = jwt.decode(token);
+        console.log('TOKEN PAYLOAD (login):', decoded);
+      } catch (e) {
+        console.log('Failed to decode login token payload', e);
+      }
       return sendResponse(req, res, { ok: true, token, user });
     } catch (err: any) {
       const statusCode = err.statusCode || 500;
@@ -109,7 +195,7 @@ let server: any;
     }
   });
 
-  // 認証必須API
+  // User registration (with authentication required)
   app.post('/registerUser', verifyToken, async (req: Request, res: Response) => {
     const { user, password } = req.body;
     try {
@@ -120,7 +206,12 @@ let server: any;
     }
   });
 
+  // User deletion (with authentication required)
   app.post('/deleteUser', verifyToken, async (req: Request, res: Response) => {
+    // Reject if userType is provisional
+    if ((req as any).user && (req as any).user.userType === 'provisional') {
+      return sendResponse(req, res, { ok: false, error: 'provisional user cannot delete users' }, 403);
+    }
     const { _id, authId } = req.body as { _id?: any; authId?: string };
     try {
       const deletedCount = await deleteUserRaw(_id, authId);
@@ -132,7 +223,7 @@ let server: any;
 
   // Realm風API
   app.post('/verse-gate', verifyToken, async (req: Request, res: Response) => {
-    const { collection, method, query, document, options, filter, update, replacement, pipeline, documents } = req.body as any;
+    const { collection, method, document, options, filter, update, replacement, pipeline, documents } = req.body as any;
     try {
       const db = client.db(DB_NAME);
       const col = db.collection(collection);
@@ -197,9 +288,102 @@ let server: any;
     }
   });
 
-  server = app.listen(process.env.PORT || 3000, () => {
-    console.log(`🚀 Verse API server started on port ${process.env.PORT || 3000}`);
-  });
-})();
+  // app.listen can throw synchronously (EADDRINUSE) in some environments.
+  // Wrap in try/catch to handle that case and avoid unhandled exceptions in tests.
+  try {
+    server = app.listen(port);
+  } catch (err: any) {
+    if (err && err.code === 'EADDRINUSE') {
+      console.log(`Port ${port} already in use (sync), assuming server is started elsewhere`);
+      server = undefined;
+      return server;
+    }
+    throw err;
+  }
 
-export { server, client };
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', () => {
+      console.log(`🚀 Verse API server started on port ${port}`);
+      resolve();
+    });
+    server.once('error', (err: any) => {
+      // If port is already in use by another test worker/process, don't fail the start.
+      if (err && err.code === 'EADDRINUSE') {
+        console.log(`Port ${port} already in use, assuming server is started elsewhere`);
+        server = undefined;
+        resolve();
+      } else {
+        reject(err);
+      }
+    });
+  });
+  return server;
+}
+
+async function stopServer() {
+  // close http server if running
+  if (server) {
+    await new Promise<void>((resolve, reject) => {
+      server.close((err?: Error) => (err ? reject(err) : resolve()));
+    });
+    server = undefined;
+  }
+  // force-close MongoClient to terminate underlying sockets
+  try {
+    if (client) {
+      // ask client to close and wait for internal close operations
+      try {
+        await client.close(true);
+      } catch (_e) {
+        // ignore errors from driver close
+      }
+      // also try to directly close internal topology if present (defensive)
+      try {
+        const topologyClose = (client as any)?.topology?.close;
+        if (typeof topologyClose === 'function') {
+          try { await (client as any).topology.close(); } catch (_e) { /* ignore */ }
+        }
+      } catch (_e) { /* ignore */ }
+      // drop reference to client to avoid accidental reuse
+      try { client = undefined; } catch (_e) { /* ignore */ }
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  // After attempting to close the client, some TLSSocket handles may linger briefly
+  // (driver internal cleanup). Aggressively destroy any remote MongoDB TLSSocket/Socket
+  // we can find for a short period to avoid leaving open handles that prevent node exit.
+  try {
+    const getHandles = (process as any)._getActiveHandles;
+    if (typeof getHandles === 'function') {
+      const deadline = Date.now() + 2000; // wait up to 2000ms
+      const targetCtors = new Set(['TLSSocket', 'Socket', 'TLSWrap', 'TCP']);
+      while (Date.now() < deadline) {
+        let destroyedOne = false;
+        const handles = getHandles();
+        for (const h of handles) {
+          try {
+            const ctor = h && h.constructor && h.constructor.name;
+            if (targetCtors.has(ctor)) {
+              const peer = h._peername || (h._parent && h._parent.remoteAddress) || null;
+              const servername = h.servername || (h._parent && h._parent.servername) || null;
+              if (peer || (servername && String(servername).includes('mongodb'))) {
+                try { h.destroy(); destroyedOne = true; } catch (_e) { /* ignore */ }
+              }
+            }
+          } catch (e) {
+            // ignore per-handle errors
+          }
+        }
+        if (!destroyedOne) break;
+        // small backoff to let driver settle
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+export { startServer, stopServer, client };

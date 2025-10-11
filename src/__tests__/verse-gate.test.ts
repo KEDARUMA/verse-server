@@ -1,7 +1,7 @@
 import request from 'supertest';
 import { ObjectId } from 'bson';
 import dotenv from 'dotenv';
-import { registerUserRaw, server, client } from '../server';
+import { registerUserRaw, startServer, stopServer, client } from '../server';
 import fs from 'fs';
 import { EJSON } from 'bson';
 
@@ -21,7 +21,10 @@ let authToken: string;
 
 // テスト用ユーザーの登録と認証トークン取得
 beforeAll(async () => {
-  // Register test user directly using the function
+  // Start server so `client` is initialized and endpoints are available
+  await startServer();
+
+  // Register test user directly using the function (client is now available)
   await registerUserRaw(
     { authId: 'test-user', userType: 'staff', roles: [], merchantId: new ObjectId(), version: '0.0.0', collectionType: 'users', isRemove: false },
     'test-password'
@@ -73,9 +76,8 @@ afterAll(async () => {
     .set('Authorization', `Bearer ${authToken}`)
     .send({ authId: 'test-user' });
 
-  // MongoDBクライアントとExpressサーバのクローズ
-  await client.close();
-  await new Promise(resolve => server.close(resolve));
+  // Stop server and close client
+  try { await stopServer(); } catch (e) { /* ignore */ }
 });
 
 describe('/verse-gate API', () => {
