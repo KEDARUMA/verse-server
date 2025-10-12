@@ -33,14 +33,3 @@ jest-cache/
 /*.tgz
 # local overrides
 .local
-
-# Generated config artifacts (do NOT track these generated/transpiled config files)
-eslint.config.d.mts
-eslint.config.d.mts.map
-eslint.config.mjs
-eslint.config.mjs.map
-eslint.config*.map
-jest.config.js
-jest.config.js.map
-jest.config.d.ts
-jest.config.d.ts.map

@@ -17,9 +17,6 @@ const USERS_COLLECTION = process.env.USERS_COLLECTION_NAME || 'user-info';
 const testAuthId: string = 'testuser_' + Date.now();
 const testPassword = 'testpass123';
 const testUser: User = {
-  version: '1',
-  collectionType: USERS_COLLECTION,
-  isRemove: false,
   authId: testAuthId,
   userType: 'staff', // 'staff' or 'customer'
   roles: ['test'],

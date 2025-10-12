@@ -21,6 +21,10 @@ let client: any; // MongoClient will be assigned in startServer()
 const DB_NAME = process.env.DATA_BASE_NAME || 'verse';
 const USERS_COLLECTION = process.env.USERS_COLLECTION_NAME;
 if (!USERS_COLLECTION) throw new Error('Environment variable USERS_COLLECTION is required but was not set')
+const PROVISIONAL_LOGIN_ENABLED =
+  process.env.PROVISIONAL_LOGIN_ENABLED === undefined ||
+  process.env.PROVISIONAL_LOGIN_ENABLED === 'true' ||
+  process.env.PROVISIONAL_LOGIN_ENABLED === '1';
 const PROVISIONAL_AUTH_ID = process.env.PROVISIONAL_AUTH_ID;
 if (!PROVISIONAL_AUTH_ID) throw new Error('Environment variable PROVISIONAL_AUTH_ID is required but was not set')
 const PROVISIONAL_AUTH_SECRET_MASTER = process.env.PROVISIONAL_AUTH_SECRET_MASTER;
@@ -135,28 +139,32 @@ async function startServer() {
     next();
   });
 
-  app.post('/provisional-login', async (req: Request, res: Response) => {
-    const { authId, password } = req.body;
-    if (!authId || !password) return sendResponse(req, res, { ok: false, error: 'authId and password are required' }, 400);
-    try {
-      if (authId !== PROVISIONAL_AUTH_ID) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
-      const passwordValid = await plpaServer.validatePassword(password);
-      if (!passwordValid || !passwordValid.ok) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
-
-      const token = jwt.sign({ userType: 'provisional' }, process.env.JWT_SECRET, { expiresIn: '5s' });
-      // DEBUG: decode and log the token payload for inspection
+  if (PROVISIONAL_LOGIN_ENABLED) {
+    app.post('/provisional-login', async (req: Request, res: Response) => {
+      const { authId, password } = req.body;
+      if (!authId || !password) return sendResponse(req, res, { ok: false, error: 'authId and password are required' }, 400);
       try {
-        const decoded = jwt.decode(token);
-        console.log('TOKEN PAYLOAD (provisional-login):', decoded);
-      } catch (e) {
-        console.log('Failed to decode provisional token payload', e);
+        if (authId !== PROVISIONAL_AUTH_ID) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
+        const passwordValid = await plpaServer.validatePassword(password);
+        if (!passwordValid || !passwordValid.ok) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
+
+        const token = jwt.sign({ userType: 'provisional' }, process.env.JWT_SECRET, { expiresIn: '5s' });
+        // DEBUG: decode and log the token payload for inspection
+        try {
+          const decoded = jwt.decode(token);
+          console.log('TOKEN PAYLOAD (provisional-login):', decoded);
+        } catch (e) {
+          console.log('Failed to decode provisional token payload', e);
+        }
+        return sendResponse(req, res, { ok: true, token, user: {} });
+      } catch (err: any) {
+        const statusCode = err.statusCode || 500;
+        return sendResponse(req, res, { ok: false, error: err.message }, statusCode);
       }
-      return sendResponse(req, res, { ok: true, token, user: {} });
-    } catch (err: any) {
-      const statusCode = err.statusCode || 500;
-      return sendResponse(req, res, { ok: false, error: err.message }, statusCode);
-    }
-  });
+    });
+  } else {
+    console.log('PROVISIONAL_LOGIN_ENABLED is false; /provisional-login route not registered');
+  }
 
   // Login endpoint: Authenticate user and issue JWT
   app.post('/login', async (req: Request, res: Response) => {

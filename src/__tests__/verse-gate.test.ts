@@ -26,7 +26,7 @@ beforeAll(async () => {
 
   // Register test user directly using the function (client is now available)
   await registerUserRaw(
-    { authId: 'test-user', userType: 'staff', roles: [], merchantId: new ObjectId(), version: '0.0.0', collectionType: 'users', isRemove: false },
+    { authId: 'test-user', userType: 'staff', roles: [], merchantId: new ObjectId()},
     'test-password'
   );
 
