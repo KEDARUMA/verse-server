@@ -15,7 +15,6 @@ app.use(express.text({ type: 'application/ejson' }));
 app.use(express.json());
 
 const mongoUri = process.env.MONGO_URI;
-const isTest = process.env.NODE_ENV === 'test';
 // Client binding (created inside startServer()). Exported at bottom to avoid duplicate export declarations.
 let client: any; // MongoClient will be assigned in startServer()
 
@@ -121,17 +120,7 @@ async function startServer() {
   // Ensure we have a numeric port value available for listen()/logs.
   const port = Number(process.env.PORT) || 3000;
   // create client here (delay creation until startServer is called)
-  // Use conservative options in test mode to reduce background timers/sockets.
-  const opts = isTest
-    ? {
-        minPoolSize: 0,
-        maxPoolSize: 1,
-        connectTimeoutMS: 10000,
-        serverSelectionTimeoutMS: 5000,
-        heartbeatFrequencyMS: 1000,
-      }
-    : undefined;
-  client = opts ? new MongoClient(mongoUri, opts) : new MongoClient(mongoUri);
+  client = new MongoClient(mongoUri);
   await client.connect();
 
   // Middleware: if body was sent as application/ejson, parse it into BSON types
@@ -221,7 +210,7 @@ async function startServer() {
     }
   });
 
-  // Realm風API
+  // MongoDB operation API that is almost transparent, similar to Realm
   app.post('/verse-gate', verifyToken, async (req: Request, res: Response) => {
     const { collection, method, document, options, filter, update, replacement, pipeline, documents } = req.body as any;
     try {
@@ -387,3 +376,60 @@ async function stopServer() {
 }
 
 export { startServer, stopServer, client };
+
+// Setup signal and exception handlers for graceful shutdown (useful for pm2/systemd)
+function setupSignalHandlers() {
+  const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGQUIT'];
+  let shuttingDown = false;
+
+  const graceful = async (reason?: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    try {
+      console.log(`Shutting down server (${reason || 'signal'})...`);
+      await stopServer();
+      console.log('Shutdown complete.');
+      process.exit(0);
+    } catch (err) {
+      console.error('Error during shutdown:', err);
+      process.exit(1);
+    }
+  };
+
+  for (const sig of signals) {
+    process.on(sig, () => { void graceful(sig); });
+  }
+
+  process.on('uncaughtException', (err) => {
+    console.error('uncaughtException:', err);
+    void graceful('uncaughtException');
+  });
+  process.on('unhandledRejection', (reason) => {
+    console.error('unhandledRejection:', reason);
+    void graceful('unhandledRejection');
+  });
+}
+
+// If this module is executed directly (node dist/server.js), start the server and
+// ensure the process remains alive and reacts to termination signals.
+if (require.main === module) {
+  setupSignalHandlers();
+  (async () => {
+    try {
+      const serverInstance = await startServer();
+      const runPort = Number(process.env.PORT) || 3000;
+      if (!serverInstance) {
+        console.error(`Server did not start on port ${runPort}. Exiting.`);
+        // ensure shutdown of any partial resources
+        await stopServer().catch(() => { /* ignore */ });
+        process.exit(1);
+      }
+      console.log(`Server running (pid ${process.pid}) on port ${runPort}`);
+      // keep process alive while http server listens
+    } catch (err) {
+      console.error('Failed to start server:', err);
+      await stopServer().catch(() => { /* ignore */ });
+      process.exit(1);
+    }
+  })();
+}

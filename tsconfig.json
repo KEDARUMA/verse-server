@@ -1,6 +1,12 @@
 {
   // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
+    // Ensure compiled JS is emitted to dist/ and sources are taken from src/
+    "rootDir": "src",
+    "outDir": "dist",
+    "lib": ["esnext"],
+    "types": ["node", "jest"],
+
     // File Layout
     // "rootDir": "./src",
     // "outDir": "./dist",
@@ -9,7 +15,7 @@
     // See also https://aka.ms/tsconfig/module
     "module": "commonjs",
     "target": "esnext",
-    "types": ["jest"],
+
     // For nodejs:
     // "lib": ["esnext"],
     // "types": ["node"],
@@ -41,5 +47,16 @@
     "skipLibCheck": true,
     "moduleResolution": "node",
     "esModuleInterop": true
-  }
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "jest.config.ts",
+    "eslint.config.mts"
+  ]
 }
