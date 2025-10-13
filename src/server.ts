@@ -22,7 +22,6 @@ const DB_NAME = process.env.DATA_BASE_NAME || 'verse';
 const USERS_COLLECTION = process.env.USERS_COLLECTION_NAME;
 if (!USERS_COLLECTION) throw new Error('Environment variable USERS_COLLECTION is required but was not set')
 const PROVISIONAL_LOGIN_ENABLED =
-  process.env.PROVISIONAL_LOGIN_ENABLED === undefined ||
   process.env.PROVISIONAL_LOGIN_ENABLED === 'true' ||
   process.env.PROVISIONAL_LOGIN_ENABLED === '1';
 const PROVISIONAL_AUTH_ID = process.env.PROVISIONAL_AUTH_ID;
