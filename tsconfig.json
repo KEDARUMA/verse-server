@@ -2,7 +2,7 @@
   // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
     // Ensure compiled JS is emitted to dist/ and sources are taken from src/
-    "rootDir": "src",
+    "rootDir": ".",
     "outDir": "dist",
     "lib": ["esnext"],
     "types": ["node", "jest"],
@@ -46,8 +46,17 @@
     "moduleDetection": "force",
     "skipLibCheck": true,
     "moduleResolution": "node",
-    "esModuleInterop": true
+    "esModuleInterop": true,
+
+    // Base URL and Paths for Workspace Packages
+    "baseUrl": ".",
+    "paths": {
+      "verse-shared/*": ["packages/verse-shared/src/*"],
+      "verse-shared": ["packages/verse-shared/src/index.ts"],
+      "verse-client/*": ["packages/verse-client/src/*"],
+      "verse-server/*": ["packages/verse-server/src/*"]
+    }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "packages/**/*"],
   "exclude": ["node_modules", "dist", "src/__tests__", "**/*.test.ts"]
 }

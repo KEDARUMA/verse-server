@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
-import { User } from './models/user-types';
-import {AuthServer} from "./auth-token";
+import { User } from '../../verse-shared/src/models/user-types';
+import { AuthServer } from '../../verse-shared/src/auth-token';
 const express = require('express');
 const dotenv = require('dotenv');
 const { MongoClient } = require('mongodb');
@@ -15,8 +15,7 @@ app.use(express.text({ type: 'application/ejson' }));
 app.use(express.json());
 
 const mongoUri = process.env.MONGO_URI;
-// Client binding (created inside startServer()). Exported at bottom to avoid duplicate export declarations.
-let client: any; // MongoClient will be assigned in startServer()
+let client: any;
 
 const DB_NAME = process.env.DATA_BASE_NAME || 'verse';
 const USERS_COLLECTION = process.env.USERS_COLLECTION_NAME;
@@ -33,10 +32,8 @@ if (!PROVISIONAL_AUTH_DOMAIN) throw new Error('Environment variable PROVISIONAL_
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
 if (!JWT_EXPIRES_IN) throw new Error('Environment variable JWT_EXPIRES_IN is required but was not set')
 
-// provisional login passwd auth server
 const plpaServer = new AuthServer({ secretMaster: PROVISIONAL_AUTH_SECRET_MASTER, authDomain: PROVISIONAL_AUTH_DOMAIN });
 
-// Response helper: if client accepts application/ejson, send EJSON; otherwise send standard JSON
 function sendResponse(req: any, res: any, obj: any, status = 200) {
   if (status) res.status(status);
   const acceptHeader = (req.headers && (req.headers['accept'] || req.headers['Accept'])) || '';
@@ -48,7 +45,6 @@ function sendResponse(req: any, res: any, obj: any, status = 200) {
   }
 }
 
-// JWT authentication middleware
 function verifyToken(req: Request, res: Response, next: NextFunction) {
   const header = req.headers['authorization'] as string | undefined;
   const token = header && header.split(' ')[1];
@@ -56,10 +52,6 @@ function verifyToken(req: Request, res: Response, next: NextFunction) {
   try {
     (req as any).user = jwt.verify(token, process.env.JWT_SECRET);
 
-    // If the token payload indicates a provisional user, restrict access.
-    // Allow only the registerUser and login endpoints for provisional users.
-    // Note: /login is typically public (no token), but we include it here
-    // for completeness if routes change in the future.
     const provisionalAllowedPaths = new Set(['/registerUser', '/login']);
     const userType = (req as any).user && (req as any).user.userType;
     if (userType === 'provisional') {
@@ -75,7 +67,6 @@ function verifyToken(req: Request, res: Response, next: NextFunction) {
   }
 }
 
-// User registration
 export async function registerUserRaw(user: User, password: string) {
   if (!user || typeof user !== 'object') throw new Error('User document is required');
   if (!user.authId) throw new Error('authId is required');
@@ -92,7 +83,6 @@ export async function registerUserRaw(user: User, password: string) {
   return user;
 }
 
-// User deletion
 export async function deleteUserRaw(_id: any, authId?: string) {
   if (!_id && !authId) throw new Error('Either _id or authId must be provided');
   const userCol = client.db(DB_NAME).collection(USERS_COLLECTION);
@@ -108,7 +98,6 @@ export async function deleteUserRaw(_id: any, authId?: string) {
 
 let server: any;
 
-// Helper to determine if server is already listening.
 function isServerListening(s: any) {
   try {
     return !!(s && typeof s.listening === 'boolean' ? s.listening : s.address && s.address());
@@ -117,16 +106,12 @@ function isServerListening(s: any) {
   }
 }
 
-async function startServer() {
-  // If server already started and listening, reuse it.
+export async function startServer() {
   if (isServerListening(server)) return server;
-  // Ensure we have a numeric port value available for listen()/logs.
   const port = Number(process.env.PORT) || 3000;
-  // create client here (delay creation until startServer is called)
   client = new MongoClient(mongoUri);
   await client.connect();
 
-  // Middleware: if body was sent as application/ejson, parse it into BSON types
   app.use((req: any, res: any, next: any) => {
     if (req.is && req.is('application/ejson')) {
       try {
@@ -148,7 +133,6 @@ async function startServer() {
         if (!passwordValid || !passwordValid.ok) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
 
         const token = jwt.sign({ userType: 'provisional' }, process.env.JWT_SECRET, { expiresIn: '5s' });
-        // DEBUG: decode and log the token payload for inspection
         try {
           const decoded = jwt.decode(token);
           console.log('TOKEN PAYLOAD (provisional-login):', decoded);
@@ -165,7 +149,6 @@ async function startServer() {
     console.log('PROVISIONAL_LOGIN_ENABLED is false; /provisional-login route not registered');
   }
 
-  // Login endpoint: Authenticate user and issue JWT
   app.post('/login', async (req: Request, res: Response) => {
     const { authId, password } = req.body;
     if (!authId || !password) return sendResponse(req, res, { ok: false, error: 'authId and password are required' }, 400);
@@ -177,7 +160,6 @@ async function startServer() {
       if (!valid) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
       const { _id, userType, roles, merchantId } = user;
       const token = jwt.sign({ _id, userType, roles, merchantId }, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
-      // DEBUG: decode and log the token payload for inspection
       try {
         const decoded = jwt.decode(token);
         console.log('TOKEN PAYLOAD (login):', decoded);
@@ -191,7 +173,6 @@ async function startServer() {
     }
   });
 
-  // User registration (with authentication required)
   app.post('/registerUser', verifyToken, async (req: Request, res: Response) => {
     const { user, password } = req.body;
     try {
@@ -202,9 +183,7 @@ async function startServer() {
     }
   });
 
-  // User deletion (with authentication required)
   app.post('/deleteUser', verifyToken, async (req: Request, res: Response) => {
-    // Reject if userType is provisional
     if ((req as any).user && (req as any).user.userType === 'provisional') {
       return sendResponse(req, res, { ok: false, error: 'provisional user cannot delete users' }, 403);
     }
@@ -217,7 +196,6 @@ async function startServer() {
     }
   });
 
-  // MongoDB operation API that is almost transparent, similar to Realm
   app.post('/verse-gate', verifyToken, async (req: Request, res: Response) => {
     const { collection, method, document, options, filter, update, replacement, pipeline, documents } = req.body as any;
     try {
@@ -284,8 +262,6 @@ async function startServer() {
     }
   });
 
-  // app.listen can throw synchronously (EADDRINUSE) in some environments.
-  // Wrap in try/catch to handle that case and avoid unhandled exceptions in tests.
   try {
     server = app.listen(port);
   } catch (err: any) {
@@ -303,7 +279,6 @@ async function startServer() {
       resolve();
     });
     server.once('error', (err: any) => {
-      // If port is already in use by another test worker/process, don't fail the start.
       if (err && err.code === 'EADDRINUSE') {
         console.log(`Port ${port} already in use, assuming server is started elsewhere`);
         server = undefined;
@@ -316,44 +291,34 @@ async function startServer() {
   return server;
 }
 
-async function stopServer() {
-  // close http server if running
+export async function stopServer() {
   if (server) {
     await new Promise<void>((resolve, reject) => {
       server.close((err?: Error) => (err ? reject(err) : resolve()));
     });
     server = undefined;
   }
-  // force-close MongoClient to terminate underlying sockets
   try {
     if (client) {
-      // ask client to close and wait for internal close operations
       try {
         await client.close(true);
       } catch (_e) {
-        // ignore errors from driver close
       }
-      // also try to directly close internal topology if present (defensive)
       try {
         const topologyClose = (client as any)?.topology?.close;
         if (typeof topologyClose === 'function') {
-          try { await (client as any).topology.close(); } catch (_e) { /* ignore */ }
+          try { await (client as any).topology.close(); } catch (_e) { }
         }
-      } catch (_e) { /* ignore */ }
-      // drop reference to client to avoid accidental reuse
-      try { client = undefined; } catch (_e) { /* ignore */ }
+      } catch (_e) { }
+      try { client = undefined; } catch (_e) { }
     }
   } catch (e) {
-    // ignore
   }
 
-  // After attempting to close the client, some TLSSocket handles may linger briefly
-  // (driver internal cleanup). Aggressively destroy any remote MongoDB TLSSocket/Socket
-  // we can find for a short period to avoid leaving open handles that prevent node exit.
   try {
     const getHandles = (process as any)._getActiveHandles;
     if (typeof getHandles === 'function') {
-      const deadline = Date.now() + 2000; // wait up to 2000ms
+      const deadline = Date.now() + 2000;
       const targetCtors = new Set(['TLSSocket', 'Socket', 'TLSWrap', 'TCP']);
       while (Date.now() < deadline) {
         let destroyedOne = false;
@@ -365,78 +330,16 @@ async function stopServer() {
               const peer = h._peername || (h._parent && h._parent.remoteAddress) || null;
               const servername = h.servername || (h._parent && h._parent.servername) || null;
               if (peer || (servername && String(servername).includes('mongodb'))) {
-                try { h.destroy(); destroyedOne = true; } catch (_e) { /* ignore */ }
+                try { h.destroy(); destroyedOne = true; } catch (_e) { }
               }
             }
           } catch (e) {
-            // ignore per-handle errors
           }
         }
         if (!destroyedOne) break;
-        // small backoff to let driver settle
         await new Promise((r) => setTimeout(r, 100));
       }
     }
   } catch (e) {
-    // ignore
   }
-}
-
-export { startServer, stopServer, client };
-
-// Setup signal and exception handlers for graceful shutdown (useful for pm2/systemd)
-function setupSignalHandlers() {
-  const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGQUIT'];
-  let shuttingDown = false;
-
-  const graceful = async (reason?: string) => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    try {
-      console.log(`Shutting down server (${reason || 'signal'})...`);
-      await stopServer();
-      console.log('Shutdown complete.');
-      process.exit(0);
-    } catch (err) {
-      console.error('Error during shutdown:', err);
-      process.exit(1);
-    }
-  };
-
-  for (const sig of signals) {
-    process.on(sig, () => { void graceful(sig); });
-  }
-
-  process.on('uncaughtException', (err) => {
-    console.error('uncaughtException:', err);
-    void graceful('uncaughtException');
-  });
-  process.on('unhandledRejection', (reason) => {
-    console.error('unhandledRejection:', reason);
-    void graceful('unhandledRejection');
-  });
-}
-
-// If this module is executed directly (node dist/server.js), start the server and
-// ensure the process remains alive and reacts to termination signals.
-if (require.main === module) {
-  setupSignalHandlers();
-  (async () => {
-    try {
-      const serverInstance = await startServer();
-      const runPort = Number(process.env.PORT) || 3000;
-      if (!serverInstance) {
-        console.error(`Server did not start on port ${runPort}. Exiting.`);
-        // ensure shutdown of any partial resources
-        await stopServer().catch(() => { /* ignore */ });
-        process.exit(1);
-      }
-      console.log(`Server running (pid ${process.pid}) on port ${runPort}`);
-      // keep process alive while http server listens
-    } catch (err) {
-      console.error('Failed to start server:', err);
-      await stopServer().catch(() => { /* ignore */ });
-      process.exit(1);
-    }
-  })();
 }

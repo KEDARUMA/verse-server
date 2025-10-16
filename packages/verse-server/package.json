@@ -1,0 +1,22 @@
+{
+  "name": "verse-server",
+  "version": "1.0.0",
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "files": ["dist/", "src/"],
+  "license": "ISC",
+  "scripts": {
+    "start": "node dist/server.js",
+    "build": "tsc -p src/tsconfig.json",
+    "test": "jest --runInBand"
+  },
+  "dependencies": {
+    "bson": "^6.10.4",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "mongodb": "^6.20.0",
+    "jsonwebtoken": "^9.0.2",
+    "bcrypt": "^6.0.0",
+    "verse-shared": "workspace:*"
+  }
+}

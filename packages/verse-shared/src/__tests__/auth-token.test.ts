@@ -46,12 +46,10 @@ describe('AuthToken', () => {
 
 describe('AuthToken demo', () => {
   it('should run demo without error', async () => {
-    // demo()はconsole出力のみ、エラーが出ないことを確認
     const spy = jest.spyOn(console, 'log').mockImplementation(() => {});
     const spyErr = jest.spyOn(console, 'error').mockImplementation(() => {});
     let error: any = null;
     try {
-      // @ts-ignore
       await (await import('../auth-token')).demo();
     } catch (e) {
       error = e;
