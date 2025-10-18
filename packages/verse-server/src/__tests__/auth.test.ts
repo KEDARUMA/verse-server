@@ -1,16 +1,16 @@
 import request from 'supertest';
-import { ObjectId, EJSON } from 'bson';
+import { ObjectId } from 'bson';
 import dotenv from 'dotenv';
-import { User } from '../../src/models/user-types';
-import { registerUserRaw, deleteUserRaw } from '../../src/server';
+import { User } from 'verse-shared/models/user-types';
+import { registerUserRaw, deleteUserRaw, startServer, stopServer } from 'verse-server/server';
 import { MongoClient } from 'mongodb';
-import { AuthClient } from '../../../verse-shared/src/auth-token';
-import { startServer, client as serverClient, stopServer } from '../../src/server';
+import { AuthClient } from 'verse-shared/auth-token';
+
 dotenv.config();
 
-const SHOW_WHY_DIAGNOSTIC = false;
 const SERVER_URL = 'http://localhost:' + (process.env.PORT || 3000);
-const USERS_COLLECTION = process.env.USERS_COLLECTION_NAME || 'user-info';
+
+const client = new MongoClient(process.env.MONGO_URI || '');
 
 const testAuthId: string = 'testuser_' + Date.now();
 const testPassword = 'testpass123';
@@ -21,8 +21,6 @@ const testUser: User = {
   merchantId: new ObjectId(),
 };
 
-let createdUserId: string | undefined;
-const client = new MongoClient(process.env.MONGO_URI || '');
 let provisionalPassword: string;
 let server: any;
 
@@ -150,4 +148,3 @@ describe('Provisional Login API', () => {
     expect(res.body.error).toBeDefined();
   });
 });
-

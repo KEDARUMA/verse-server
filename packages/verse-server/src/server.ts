@@ -1,12 +1,15 @@
 import type { Request, Response, NextFunction } from 'express';
-import { User } from '../../verse-shared/src/models/user-types';
-import { AuthServer } from '../../verse-shared/src/auth-token';
+import { User } from 'verse-shared/models/user-types';
+import { AuthServer } from 'verse-shared/auth-token';
+import type { MongoClient as MongoClientType } from 'mongodb';
 const express = require('express');
 const dotenv = require('dotenv');
 const { MongoClient } = require('mongodb');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
+import type { ObjectId as ObjectIdType } from 'bson';
 const { ObjectId, EJSON } = require('bson');
+import { ensureDefined } from 'verse-shared/utils/asserts';
 
 dotenv.config();
 
@@ -15,24 +18,25 @@ app.use(express.text({ type: 'application/ejson' }));
 app.use(express.json());
 
 const mongoUri = process.env.MONGO_URI;
-let client: any;
+export let client: MongoClientType | undefined;
 
-const DB_NAME = process.env.DATA_BASE_NAME || 'verse';
-const USERS_COLLECTION = process.env.USERS_COLLECTION_NAME;
-if (!USERS_COLLECTION) throw new Error('Environment variable USERS_COLLECTION is required but was not set')
+const DB_NAME = ensureDefined(process.env.DATA_BASE_NAME, 'Environment variable DATA_BASE_NAME is required but was not set');
+const USERS_COLLECTION = ensureDefined(process.env.USERS_COLLECTION_NAME, 'Environment variable USERS_COLLECTION_NAME is required but was not set');
 const PROVISIONAL_LOGIN_ENABLED =
   process.env.PROVISIONAL_LOGIN_ENABLED === 'true' ||
   process.env.PROVISIONAL_LOGIN_ENABLED === '1';
-const PROVISIONAL_AUTH_ID = process.env.PROVISIONAL_AUTH_ID;
-if (!PROVISIONAL_AUTH_ID) throw new Error('Environment variable PROVISIONAL_AUTH_ID is required but was not set')
-const PROVISIONAL_AUTH_SECRET_MASTER = process.env.PROVISIONAL_AUTH_SECRET_MASTER;
-if (!PROVISIONAL_AUTH_SECRET_MASTER) throw new Error('Environment variable PROVISIONAL_AUTH_SECRET_MASTER is required but was not set')
-const PROVISIONAL_AUTH_DOMAIN = process.env.PROVISIONAL_AUTH_DOMAIN;
-if (!PROVISIONAL_AUTH_DOMAIN) throw new Error('Environment variable PROVISIONAL_AUTH_DOMAIN is required but was not set')
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
-if (!JWT_EXPIRES_IN) throw new Error('Environment variable JWT_EXPIRES_IN is required but was not set')
+const PROVISIONAL_AUTH_ID = ensureDefined(process.env.PROVISIONAL_AUTH_ID, 'Environment variable PROVISIONAL_AUTH_ID is required but was not set');
+const PROVISIONAL_AUTH_SECRET_MASTER = ensureDefined(process.env.PROVISIONAL_AUTH_SECRET_MASTER, 'Environment variable PROVISIONAL_AUTH_SECRET_MASTER is required but was not set');
+const PROVISIONAL_AUTH_DOMAIN = ensureDefined(process.env.PROVISIONAL_AUTH_DOMAIN, 'Environment variable PROVISIONAL_AUTH_DOMAIN is required but was not set');
+const JWT_EXPIRES_IN = ensureDefined(process.env.JWT_EXPIRES_IN, 'Environment variable JWT_EXPIRES_IN is required but was not set');
 
 const plpaServer = new AuthServer({ secretMaster: PROVISIONAL_AUTH_SECRET_MASTER, authDomain: PROVISIONAL_AUTH_DOMAIN });
+
+// Helper to ensure client is initialized and narrow its type
+function getClient(): MongoClientType {
+  if (!client) throw new Error('MongoClient not initialized');
+  return client;
+}
 
 function sendResponse(req: any, res: any, obj: any, status = 200) {
   if (status) res.status(status);
@@ -67,11 +71,17 @@ function verifyToken(req: Request, res: Response, next: NextFunction) {
   }
 }
 
+function toObjectId(id: any): ObjectIdType | undefined {
+  if (!id) return undefined;
+  if (typeof id === 'string') return new ObjectId(id);
+  return id as ObjectIdType;
+}
+
 export async function registerUserRaw(user: User, password: string) {
   if (!user || typeof user !== 'object') throw new Error('User document is required');
   if (!user.authId) throw new Error('authId is required');
   if (!password) throw new Error('Password is required');
-  const userCol = client.db(DB_NAME).collection(USERS_COLLECTION);
+  const userCol = getClient().db(DB_NAME).collection(USERS_COLLECTION);
   const exists = await userCol.findOne({ authId: user.authId });
   if (exists) throw new Error('authId already exists');
   const passwordHash = await bcrypt.hash(password, 10);
@@ -79,16 +89,18 @@ export async function registerUserRaw(user: User, password: string) {
     user._id = new ObjectId();
   }
   user.passwordHash = passwordHash;
-  await userCol.insertOne(user);
+  // Ensure _id is an ObjectId for Mongo driver compatibility
+  const insertDoc = { ...user, _id: toObjectId(user._id) } as any;
+  await userCol.insertOne(insertDoc);
   return user;
 }
 
 export async function deleteUserRaw(_id: any, authId?: string) {
   if (!_id && !authId) throw new Error('Either _id or authId must be provided');
-  const userCol = client.db(DB_NAME).collection(USERS_COLLECTION);
+  const userCol = getClient().db(DB_NAME).collection(USERS_COLLECTION);
   let filter: any = {};
   if (_id) {
-    filter._id = _id;
+    filter._id = toObjectId(_id) ?? _id;
   } else if (authId) {
     filter.authId = authId;
   }
@@ -109,8 +121,9 @@ function isServerListening(s: any) {
 export async function startServer() {
   if (isServerListening(server)) return server;
   const port = Number(process.env.PORT) || 3000;
-  client = new MongoClient(mongoUri);
-  await client.connect();
+  const c = new MongoClient(mongoUri);
+  client = c;
+  await c.connect();
 
   app.use((req: any, res: any, next: any) => {
     if (req.is && req.is('application/ejson')) {
@@ -153,7 +166,7 @@ export async function startServer() {
     const { authId, password } = req.body;
     if (!authId || !password) return sendResponse(req, res, { ok: false, error: 'authId and password are required' }, 400);
     try {
-      const userCol = client.db(DB_NAME).collection(USERS_COLLECTION);
+      const userCol = getClient().db(DB_NAME).collection(USERS_COLLECTION);
       const user = await userCol.findOne({ authId });
       if (!user || !user.passwordHash) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
       const valid = await bcrypt.compare(password, user.passwordHash);
@@ -199,7 +212,7 @@ export async function startServer() {
   app.post('/verse-gate', verifyToken, async (req: Request, res: Response) => {
     const { collection, method, document, options, filter, update, replacement, pipeline, documents } = req.body as any;
     try {
-      const db = client.db(DB_NAME);
+      const db = getClient().db(DB_NAME);
       const col = db.collection(collection);
       let result;
       switch (method) {
