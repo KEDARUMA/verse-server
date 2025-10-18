@@ -29,6 +29,8 @@ const PROVISIONAL_AUTH_ID = ensureDefined(process.env.PROVISIONAL_AUTH_ID, 'Envi
 const PROVISIONAL_AUTH_SECRET_MASTER = ensureDefined(process.env.PROVISIONAL_AUTH_SECRET_MASTER, 'Environment variable PROVISIONAL_AUTH_SECRET_MASTER is required but was not set');
 const PROVISIONAL_AUTH_DOMAIN = ensureDefined(process.env.PROVISIONAL_AUTH_DOMAIN, 'Environment variable PROVISIONAL_AUTH_DOMAIN is required but was not set');
 const JWT_EXPIRES_IN = ensureDefined(process.env.JWT_EXPIRES_IN, 'Environment variable JWT_EXPIRES_IN is required but was not set');
+// Refresh window in seconds (env REFRESH_WINDOW_SEC), default 300s if not set
+const REFRESH_WINDOW_SEC = Number(process.env.REFRESH_WINDOW_SEC ?? '300');
 
 const plpaServer = new AuthServer({ secretMaster: PROVISIONAL_AUTH_SECRET_MASTER, authDomain: PROVISIONAL_AUTH_DOMAIN });
 
@@ -53,23 +55,97 @@ function verifyToken(req: Request, res: Response, next: NextFunction) {
   const header = req.headers['authorization'] as string | undefined;
   const token = header && header.split(' ')[1];
   if (!token) return sendResponse(req, res, { ok: false, error: 'No token provided' }, 401);
-  try {
-    (req as any).user = jwt.verify(token, process.env.JWT_SECRET);
-
-    const provisionalAllowedPaths = new Set(['/registerUser', '/login']);
-    const userType = (req as any).user && (req as any).user.userType;
-    if (userType === 'provisional') {
-      const path = (req as any).path || (req as any).originalUrl || '';
-      if (!provisionalAllowedPaths.has(path)) {
-        return sendResponse(req, res, { ok: false, error: 'provisional user cannot access this endpoint' }, 403);
-      }
-    }
-
-    next();
-  } catch {
+  const result = verifyJwtToken(token);
+  if (!result.ok) {
+    if (result.reason === 'token_expired') return sendResponse(req, res, { ok: false, error: 'Token expired' }, 401);
     return sendResponse(req, res, { ok: false, error: 'Invalid token' }, 403);
   }
+  (req as any).user = result.payload;
+
+  const provisionalAllowedPaths = new Set(['/registerUser', '/login']);
+  const userType = (req as any).user && (req as any).user.userType;
+  if (userType === 'provisional') {
+    const path = (req as any).path || (req as any).originalUrl || '';
+    if (!provisionalAllowedPaths.has(path)) {
+      return sendResponse(req, res, { ok: false, error: 'provisional user cannot access this endpoint' }, 403);
+    }
+  }
+
+  next();
 }
+
+// Helper: verifies a JWT and returns normalized result
+function verifyJwtToken(token: string): { ok: true; payload: any } | { ok: false; reason: 'token_expired' | 'invalid_token' } {
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    return { ok: true, payload };
+  } catch (err: any) {
+    if (err && err.name === 'TokenExpiredError') return { ok: false, reason: 'token_expired' };
+    return { ok: false, reason: 'invalid_token' };
+  }
+}
+
+// Helper: refresh an expired JWT within a grace window. Does not refresh provisional tokens.
+function refreshJwtToken(token: string): { ok: true; token: string; expiresIn: string } | { ok: false; reason: 'not_expired' | 'invalid_token' | 'provisional_forbidden' | 'refresh_window_exceeded' } {
+  // If token is still valid, don't refresh
+  try {
+    jwt.verify(token, process.env.JWT_SECRET);
+    return { ok: false, reason: 'not_expired' };
+  } catch (err: any) {
+    if (!err || err.name !== 'TokenExpiredError') return { ok: false, reason: 'invalid_token' };
+    // Token expired — verify signature ignoring expiration
+    let payload: any;
+    try {
+      payload = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: true });
+    } catch (_e) {
+      return { ok: false, reason: 'invalid_token' };
+    }
+    // Do not refresh provisional tokens
+    if (payload && payload.userType === 'provisional') return { ok: false, reason: 'provisional_forbidden' };
+    // Check expiry field and grace window
+    const exp = payload && payload.exp ? Number(payload.exp) : undefined;
+    if (!exp) return { ok: false, reason: 'invalid_token' };
+    const now = Math.floor(Date.now() / 1000);
+    if (now - exp > REFRESH_WINDOW_SEC) return { ok: false, reason: 'refresh_window_exceeded' };
+    // Remove iat/exp/nbf before signing new token
+    const { iat, exp: _exp, nbf, ...rest } = payload as any;
+    const newToken = jwt.sign(rest, process.env.JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    return { ok: true, token: newToken, expiresIn: JWT_EXPIRES_IN };
+  }
+}
+
+// Endpoint: token verification API
+app.post('/verify-token', (req: Request, res: Response) => {
+  const header = req.headers['authorization'] as string | undefined;
+  const tokenFromHeader = header && header.split(' ')[1];
+  const token = (req.body && req.body.token) || tokenFromHeader;
+  if (!token) return sendResponse(req, res, { ok: false, reason: 'no_token' }, 400);
+  const result = verifyJwtToken(token);
+  if (result.ok) return sendResponse(req, res, { ok: true, payload: result.payload }, 200);
+  if (result.reason === 'token_expired') return sendResponse(req, res, { ok: false, reason: 'token_expired' }, 401);
+  return sendResponse(req, res, { ok: false, reason: 'invalid_token' }, 403);
+});
+
+// Endpoint: refresh an expired token within grace window
+app.post('/refresh-token', (req: Request, res: Response) => {
+  const header = req.headers['authorization'] as string | undefined;
+  const tokenFromHeader = header && header.split(' ')[1];
+  const token = (req.body && req.body.token) || tokenFromHeader;
+  if (!token) return sendResponse(req, res, { ok: false, reason: 'no_token' }, 400);
+  const result = refreshJwtToken(token);
+  if (result.ok) return sendResponse(req, res, { ok: true, token: result.token, expiresIn: result.expiresIn }, 200);
+  // Map reasons to status
+  switch (result.reason) {
+    case 'not_expired':
+      return sendResponse(req, res, { ok: false, reason: 'not_expired' }, 400);
+    case 'provisional_forbidden':
+      return sendResponse(req, res, { ok: false, reason: 'provisional_forbidden' }, 403);
+    case 'refresh_window_exceeded':
+      return sendResponse(req, res, { ok: false, reason: 'refresh_window_exceeded' }, 403);
+    default:
+      return sendResponse(req, res, { ok: false, reason: 'invalid_token' }, 403);
+  }
+});
 
 function toObjectId(id: any): ObjectIdType | undefined {
   if (!id) return undefined;
