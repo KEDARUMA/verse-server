@@ -1,5 +1,6 @@
 import { EJSON } from 'bson';
 import { AuthClient } from 'verse-shared';
+import VerseDBDatabase from "verse-client/VerseDBDatabase";
 
 export type VerseOptions = {
   fetchImpl?: typeof fetch;
@@ -174,6 +175,10 @@ export default class Verse {
   async verseGate(payload: any) {
     if (!payload || typeof payload !== 'object') throw new Error('payload object is required');
     return this.request('/verse-gate', 'POST', payload);
+  }
+
+  db(dbName: string) {
+    return new VerseDBDatabase(dbName, this);
   }
 }
 
