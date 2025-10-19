@@ -3,14 +3,15 @@ import { ObjectId } from 'bson';
 import dotenv from 'dotenv';
 import { User } from 'verse-shared/models/user-types';
 import { registerUserRaw, deleteUserRaw, startServer, stopServer } from 'verse-server/server';
-import { MongoClient } from 'mongodb';
 import { AuthClient } from 'verse-shared/auth-token';
+import { ensureDefined } from 'verse-shared/utils/asserts';
 
 dotenv.config();
 
-const SERVER_URL = 'http://localhost:' + (process.env.PORT || 3000);
+const USERS_DB_NAME = ensureDefined(process.env.USERS_DB_NAME);
+const USERS_COLLECTION_NAME = ensureDefined(process.env.USERS_COLLECTION_NAME);
 
-const client = new MongoClient(process.env.MONGO_URI || '');
+const SERVER_URL = 'http://localhost:' + (process.env.PORT || 3000);
 
 const testAuthId: string = 'testuser_' + Date.now();
 const testPassword = 'testpass123';
@@ -21,14 +22,13 @@ const testUser: User = {
   merchantId: new ObjectId(),
 };
 
+let server;
 let provisionalPassword: string;
-let server: any;
 
 beforeAll(async () => {
   console.log('beforeAll: start');
   server = await startServer();
   console.log('beforeAll: server started');
-  await client.connect();
   console.log('beforeAll: MongoDB connected');
 
   const authDomain = process.env.PROVISIONAL_AUTH_DOMAIN;
@@ -59,9 +59,6 @@ afterAll(async () => {
     console.error('Failed to delete test account in afterAll:', error);
   }
 
-  console.log('afterAll: MongoDB close start');
-  await client.close(true);
-  console.log('afterAll: local MongoDB close done');
   console.log('afterAll: stopping server and server-side resources');
   await stopServer();
   console.log('afterAll: stopServer done');
@@ -141,7 +138,7 @@ describe('Provisional Login API', () => {
     const res = await request(SERVER_URL)
       .post('/verse-gate')
       .set('Authorization', `Bearer ${token}`)
-      .send({ collection: 'user-info', method: 'find', filter: {} });
+      .send({ dn: USERS_DB_NAME, collection: USERS_COLLECTION_NAME, method: 'find', filter: {} });
 
     expect(res.status).toBe(403);
     expect(res.body.ok).toBe(false);

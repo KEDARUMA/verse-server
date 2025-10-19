@@ -8,6 +8,8 @@ export type VerseOptions = {
   provisionalEnabled?: boolean;
   provisionalAuthSecretMaster?: string;
   provisionalAuthDomain?: string;
+  // automatically set token returned from login/provisionalLogin into the client
+  autoSetToken?: boolean;
 };
 
 export type VerseResponse<T = any> = {
@@ -27,6 +29,7 @@ export default class Verse {
   private provisionalEnabled: boolean;
   private provisionalAuthSecretMaster: string;
   private provisionalAuthDomain: string;
+  private autoSetToken: boolean;
 
   constructor(baseUrl: string, opts: VerseOptions = {}) {
     if (!baseUrl) throw new Error('baseUrl is required');
@@ -36,6 +39,7 @@ export default class Verse {
     this.provisionalEnabled = opts.provisionalEnabled || false;
     this.provisionalAuthSecretMaster = opts.provisionalAuthSecretMaster || '';
     this.provisionalAuthDomain = opts.provisionalAuthDomain || '';
+    this.autoSetToken = opts.autoSetToken ?? true;
 
     if (!this.fetchImpl) {
       throw new Error('No fetch implementation available. Provide fetchImpl in options or run in Node 18+ with global fetch.');
@@ -50,6 +54,36 @@ export default class Verse {
   }
   clearToken() {
     this._token = undefined;
+  }
+
+  // Logout clears client-side token (simple, synchronous)
+  logout(): void {
+    this.clearToken();
+  }
+
+  // Call server to refresh token. Uses Authorization header with current token.
+  // On success, if autoSetToken is true and server returns a token, set it.
+  async refreshToken(): Promise<VerseResponse> {
+    if (!this._token) return { ok: false, error: 'No token set' };
+    const res = await this.request('/refresh-token', 'POST');
+    if (this.autoSetToken && res && res.ok && res.token) {
+      this.setToken(res.token as string);
+    }
+    return res;
+  }
+
+  // Verify current token with server. If invalid/expired, clear local token.
+  async verifyToken(): Promise<VerseResponse> {
+    if (!this._token) return { ok: false, error: 'No token set' };
+    const res = await this.request('/verify-token', 'POST');
+    // Server returns { ok: false, reason: 'token_expired' | 'invalid_token' | 'no_token' }
+    const reason = (res as any).reason || (res as any).error;
+    if (res && !res.ok) {
+      if (reason === 'invalid_token' || reason === 'token_expired' || reason === 'no_token' || res.status === 401 || res.status === 403) {
+        this.clearToken();
+      }
+    }
+    return res;
   }
 
   private makeHeaders(hasBody: boolean) {
@@ -105,7 +139,11 @@ export default class Verse {
 
   async login(authId: string, password: string) {
     if (!authId || !password) throw new Error('authId and password are required');
-    return this.request('/login', 'POST', { authId, password });
+    const res = await this.request('/login', 'POST', { authId, password });
+    if (this.autoSetToken && res && res.ok && res.token) {
+      this.setToken(res.token as string);
+    }
+    return res;
   }
 
   async provisionalLogin(authId: string) {
@@ -115,7 +153,11 @@ export default class Verse {
     if (!authId) throw new Error('authId is required');
     const provisionalClient = new AuthClient({ secretMaster: this.provisionalAuthSecretMaster, authDomain: this.provisionalAuthDomain });
     const provisionalPassword = await provisionalClient.producePassword(String(Date.now() * 1000));
-    return this.request('/provisional-login', 'POST', { authId, password: provisionalPassword });
+    const res = await this.request('/provisional-login', 'POST', { authId, password: provisionalPassword });
+    if (this.autoSetToken && res && res.ok && res.token) {
+      this.setToken(res.token as string);
+    }
+    return res;
   }
 
   async registerUser(user: any, password: string) {

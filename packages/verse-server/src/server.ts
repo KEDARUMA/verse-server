@@ -20,7 +20,7 @@ app.use(express.json());
 const mongoUri = process.env.MONGO_URI;
 export let client: MongoClientType | undefined;
 
-const DB_NAME = ensureDefined(process.env.DATA_BASE_NAME, 'Environment variable DATA_BASE_NAME is required but was not set');
+const USERS_DB_NAME = ensureDefined(process.env.USERS_DB_NAME, 'Environment variable USERS_DB_NAME is required but was not set');
 const USERS_COLLECTION = ensureDefined(process.env.USERS_COLLECTION_NAME, 'Environment variable USERS_COLLECTION_NAME is required but was not set');
 const PROVISIONAL_LOGIN_ENABLED =
   process.env.PROVISIONAL_LOGIN_ENABLED === 'true' ||
@@ -157,7 +157,7 @@ export async function registerUserRaw(user: User, password: string) {
   if (!user || typeof user !== 'object') throw new Error('User document is required');
   if (!user.authId) throw new Error('authId is required');
   if (!password) throw new Error('Password is required');
-  const userCol = getClient().db(DB_NAME).collection(USERS_COLLECTION);
+  const userCol = getClient().db(USERS_DB_NAME).collection(USERS_COLLECTION);
   const exists = await userCol.findOne({ authId: user.authId });
   if (exists) throw new Error('authId already exists');
   const passwordHash = await bcrypt.hash(password, 10);
@@ -173,7 +173,7 @@ export async function registerUserRaw(user: User, password: string) {
 
 export async function deleteUserRaw(_id: any, authId?: string) {
   if (!_id && !authId) throw new Error('Either _id or authId must be provided');
-  const userCol = getClient().db(DB_NAME).collection(USERS_COLLECTION);
+  const userCol = getClient().db(USERS_DB_NAME).collection(USERS_COLLECTION);
   let filter: any = {};
   if (_id) {
     filter._id = toObjectId(_id) ?? _id;
@@ -242,7 +242,7 @@ export async function startServer() {
     const { authId, password } = req.body;
     if (!authId || !password) return sendResponse(req, res, { ok: false, error: 'authId and password are required' }, 400);
     try {
-      const userCol = getClient().db(DB_NAME).collection(USERS_COLLECTION);
+      const userCol = getClient().db(USERS_DB_NAME).collection(USERS_COLLECTION);
       const user = await userCol.findOne({ authId });
       if (!user || !user.passwordHash) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
       const valid = await bcrypt.compare(password, user.passwordHash);
@@ -286,10 +286,14 @@ export async function startServer() {
   });
 
   app.post('/verse-gate', verifyToken, async (req: Request, res: Response) => {
-    const { collection, method, document, options, filter, update, replacement, pipeline, documents } = req.body as any;
+    const { db, collection, method, document, options, filter, update, replacement, pipeline, documents } = req.body as any;
     try {
-      const db = getClient().db(DB_NAME);
-      const col = db.collection(collection);
+      const _db = getClient().db(db);
+      if (!_db) return sendResponse(req, res, { ok: false, error: 'Invalid db parameter' }, 400);
+
+      const col = _db.collection(collection);
+      if (!col) return sendResponse(req, res, { ok: false, error: 'Invalid collection parameter' }, 400);
+
       let result;
       switch (method) {
         case 'find':
