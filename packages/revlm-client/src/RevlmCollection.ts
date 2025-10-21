@@ -1,4 +1,4 @@
-import Verse from "verse-client/Verse";
+import Revlm from "revlm-client/Revlm";
 import {
   AggregatePipelineStage, ChangeEvent, CountOptions, DeleteResult,
   Filter,
@@ -7,29 +7,29 @@ import {
   FindOptions, InsertManyResult, InsertOneResult, NewDocument,
   Update, UpdateOptions, UpdateResult, WatchOptionsFilter, WatchOptionsIds,
   Document
-} from "verse-client/Verse.types";
+} from "revlm-client/Revlm.types";
 
-export default class VerseCollection<T extends Document = Document> {
-  private _verse: Verse;
+export default class RevlmCollection<T extends Document = Document> {
+  private _revlm: Revlm;
   private _dbName: string;
   private _collection: string;
 
-  constructor(collection: string, dbName: string, verse: Verse) {
+  constructor(collection: string, dbName: string, revlm: Revlm) {
     this._collection = collection;
     this._dbName = dbName;
-    this._verse = verse;
+    this._revlm = revlm;
   }
 
   get name(): string {
     return this._collection;
   }
 
-  // Helper to call server verse-gate and return parsed result or throw on error
+  // Helper to call server revlm-gate and return parsed result or throw on error
   private async vg(method: string, params: Record<string, any> = {}): Promise<any> {
     const payload = { db: this._dbName, collection: this._collection, method, ...params };
-    const res = await this._verse.verseGate(payload);
+    const res = await this._revlm.revlmGate(payload);
     if (!res || !res.ok) {
-      const errMsg = res && (res.error || res.reason) ? (res.error || res.reason) : 'verse-gate error';
+      const errMsg = res && (res.error || res.reason) ? (res.error || res.reason) : 'revlm-gate error';
       const e: any = new Error(String(errMsg));
       e.response = res;
       throw e;

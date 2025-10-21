@@ -51,10 +51,10 @@
     // Base URL and Paths for Workspace Packages
     "baseUrl": ".",
     "paths": {
-      "verse-shared/*": ["packages/verse-shared/src/*"],
-      "verse-shared": ["packages/verse-shared/src/index.ts"],
-      "verse-client/*": ["packages/verse-client/src/*"],
-      "verse-server/*": ["packages/verse-server/src/*"]
+      "revlm-shared/*": ["packages/revlm-shared/src/*"],
+      "revlm-shared": ["packages/revlm-shared/src/index.ts"],
+      "revlm-client/*": ["packages/revlm-client/src/*"],
+      "revlm-server/*": ["packages/revlm-server/src/*"]
     }
   },
   "include": ["src/**/*", "packages/**/*"],

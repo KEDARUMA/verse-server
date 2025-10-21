@@ -1,4 +1,4 @@
-// auth-token.ts (moved to verse-shared)
+// auth-token.ts (moved to revlm-shared)
 // AES-GCM + HKDF (SHA-256) による「password=暗号トークン」実装
 // - 形式: base64url(iv | ciphertext|tag)
 // - payload: { ts, nonce, deviceId? } をJSONバイト化して暗号化

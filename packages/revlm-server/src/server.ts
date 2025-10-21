@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
-import { User } from 'verse-shared/models/user-types';
-import { AuthServer } from 'verse-shared/auth-token';
+import { User } from 'revlm-shared/models/user-types';
+import { AuthServer } from 'revlm-shared/auth-token';
 import type { MongoClient as MongoClientType } from 'mongodb';
 const express = require('express');
 const dotenv = require('dotenv');
@@ -9,7 +9,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 import type { ObjectId as ObjectIdType } from 'bson';
 const { ObjectId, EJSON } = require('bson');
-import { ensureDefined } from 'verse-shared/utils/asserts';
+import { ensureDefined } from 'revlm-shared/utils/asserts';
 
 dotenv.config();
 
@@ -285,7 +285,7 @@ export async function startServer() {
     }
   });
 
-  app.post('/verse-gate', verifyToken, async (req: Request, res: Response) => {
+  app.post('/revlm-gate', verifyToken, async (req: Request, res: Response) => {
     const { db, collection, method, document, options, filter, update, replacement, pipeline, documents } = req.body as any;
     try {
       const _db = getClient().db(db);
@@ -368,7 +368,7 @@ export async function startServer() {
 
   await new Promise<void>((resolve, reject) => {
     server.once('listening', () => {
-      console.log(`🚀 Verse API server started on port ${port}`);
+      console.log(`🚀 Revlm API server started on port ${port}`);
       resolve();
     });
     server.once('error', (err: any) => {

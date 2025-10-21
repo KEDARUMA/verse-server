@@ -3,7 +3,7 @@ require('dotenv').config();
 
 import { MongoClient, Collection } from 'mongodb';
 
-const DATABASE_NAME = 'verse'
+const DATABASE_NAME = 'revlm'
 
 describe('MongoDB CRUD Test', () => {
   let client: MongoClient;

@@ -1,8 +1,8 @@
 // Use .env for configuration
 require('dotenv').config();
 
-import { startServer, stopServer } from 'verse-server/server';
-import Verse from '../Verse';
+import { startServer, stopServer } from 'revlm-server/server';
+import Revlm from '../Revlm';
 
 // Allow longer timeout for integration tests that wait for token expiry
 jest.setTimeout(120000);
@@ -10,13 +10,13 @@ jest.setTimeout(120000);
 const TEST_DB = 'testdb';
 const COLL_NAME = 'testcoll';
 
-describe('VerseCollection (integration)', () => {
-  let v: Verse;
+describe('RevlmCollection (integration)', () => {
+  let v: Revlm;
   let provisionalToken: string | undefined;
 
   beforeAll(async () => {
     await startServer();
-    v = new Verse(`http://localhost:${process.env.PORT || 3000}`, {
+    v = new Revlm(`http://localhost:${process.env.PORT || 3000}`, {
       provisionalEnabled: true,
       provisionalAuthSecretMaster: process.env.PROVISIONAL_AUTH_SECRET_MASTER as string,
       provisionalAuthDomain: process.env.PROVISIONAL_AUTH_DOMAIN as string,
@@ -29,13 +29,13 @@ describe('VerseCollection (integration)', () => {
   afterAll(async () => {
     // attempt to drop the test collection before shutting down
     if (typeof v !== 'undefined' && v) {
-      try { await v.verseGate({ db: TEST_DB, collection: COLL_NAME, method: 'drop' }); } catch (e) { }
+      try { await v.revlmGate({ db: TEST_DB, collection: COLL_NAME, method: 'drop' }); } catch (e) { }
     }
 
     try { await stopServer(); } catch (e) { }
   });
 
-  it('provisional account can register a user, login, and exercise VerseCollection methods', async () => {
+  it('provisional account can register a user, login, and exercise RevlmCollection methods', async () => {
     // reuse v and provisionalToken from beforeAll
     expect(provisionalToken).toBeDefined();
 

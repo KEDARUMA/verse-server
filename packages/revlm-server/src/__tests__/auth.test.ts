@@ -1,10 +1,10 @@
 import request from 'supertest';
 import { ObjectId } from 'bson';
 import dotenv from 'dotenv';
-import { User } from 'verse-shared/models/user-types';
-import { registerUserRaw, deleteUserRaw, startServer, stopServer } from 'verse-server/server';
-import { AuthClient } from 'verse-shared/auth-token';
-import { ensureDefined } from 'verse-shared/utils/asserts';
+import { User } from 'revlm-shared/models/user-types';
+import { registerUserRaw, deleteUserRaw, startServer, stopServer } from 'revlm-server/server';
+import { AuthClient } from 'revlm-shared/auth-token';
+import { ensureDefined } from 'revlm-shared/utils/asserts';
 
 dotenv.config();
 
@@ -136,7 +136,7 @@ describe('Provisional Login API', () => {
     const token = loginRes.body.token;
 
     const res = await request(SERVER_URL)
-      .post('/verse-gate')
+      .post('/revlm-gate')
       .set('Authorization', `Bearer ${token}`)
       .send({ dn: USERS_DB_NAME, collection: USERS_COLLECTION_NAME, method: 'find', filter: {} });
 

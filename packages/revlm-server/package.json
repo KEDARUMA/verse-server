@@ -1,5 +1,5 @@
 {
-  "name": "verse-server",
+  "name": "revlm-server",
   "version": "1.0.0",
   "main": "dist/server.js",
   "types": "dist/server.d.ts",
@@ -17,6 +17,6 @@
     "mongodb": "^6.20.0",
     "jsonwebtoken": "^9.0.2",
     "bcrypt": "^6.0.0",
-    "verse-shared": "workspace:*"
+    "revlm-shared": "workspace:*"
   }
 }

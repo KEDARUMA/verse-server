@@ -1,8 +1,8 @@
 import { EJSON } from 'bson';
-import { AuthClient } from 'verse-shared';
-import VerseDBDatabase from "verse-client/VerseDBDatabase";
+import { AuthClient } from 'revlm-shared';
+import RevlmDBDatabase from "revlm-client/RevlmDBDatabase";
 
-export type VerseOptions = {
+export type RevlmOptions = {
   fetchImpl?: typeof fetch;
   defaultHeaders?: Record<string, string>;
   // provisional (optional) client-side configuration
@@ -13,7 +13,7 @@ export type VerseOptions = {
   autoSetToken?: boolean;
 };
 
-export type VerseResponse<T = any> = {
+export type RevlmResponse<T = any> = {
   ok: boolean;
   error?: string;
   token?: string;
@@ -22,7 +22,7 @@ export type VerseResponse<T = any> = {
   [k: string]: any;
 };
 
-export default class Verse {
+export default class Revlm {
   baseUrl: string;
   fetchImpl: typeof fetch;
   defaultHeaders: Record<string, string>;
@@ -32,7 +32,7 @@ export default class Verse {
   private provisionalAuthDomain: string;
   private autoSetToken: boolean;
 
-  constructor(baseUrl: string, opts: VerseOptions = {}) {
+  constructor(baseUrl: string, opts: RevlmOptions = {}) {
     if (!baseUrl) throw new Error('baseUrl is required');
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.fetchImpl = opts.fetchImpl || (typeof fetch !== 'undefined' ? fetch : (undefined as any));
@@ -64,7 +64,7 @@ export default class Verse {
 
   // Call server to refresh token. Uses Authorization header with current token.
   // On success, if autoSetToken is true and server returns a token, set it.
-  async refreshToken(): Promise<VerseResponse> {
+  async refreshToken(): Promise<RevlmResponse> {
     if (!this._token) return { ok: false, error: 'No token set' };
     const res = await this.request('/refresh-token', 'POST');
     if (this.autoSetToken && res && res.ok && res.token) {
@@ -74,7 +74,7 @@ export default class Verse {
   }
 
   // Verify current token with server. If invalid/expired, clear local token.
-  async verifyToken(): Promise<VerseResponse> {
+  async verifyToken(): Promise<RevlmResponse> {
     if (!this._token) return { ok: false, error: 'No token set' };
     const res = await this.request('/verify-token', 'POST');
     // Server returns { ok: false, reason: 'token_expired' | 'invalid_token' | 'no_token' }
@@ -115,7 +115,7 @@ export default class Verse {
     }
   }
 
-  private async request(path: string, method = 'POST', body?: any): Promise<VerseResponse> {
+  private async request(path: string, method = 'POST', body?: any): Promise<RevlmResponse> {
     const url = path.startsWith('http') ? path : `${this.baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
     const hasBody = body !== undefined;
     const headers = this.makeHeaders(hasBody);
@@ -130,7 +130,7 @@ export default class Verse {
         body: serializedBody,
       } as any);
       const parsed = await this.parseResponse(res);
-      const out: VerseResponse = (parsed && typeof parsed === 'object') ? parsed : { ok: res.ok, result: parsed };
+      const out: RevlmResponse = (parsed && typeof parsed === 'object') ? parsed : { ok: res.ok, result: parsed };
       out.status = res.status;
       return out;
     } catch (err: any) {
@@ -172,14 +172,14 @@ export default class Verse {
     return this.request('/deleteUser', 'POST', params);
   }
 
-  async verseGate(payload: any) {
+  async revlmGate(payload: any) {
     if (!payload || typeof payload !== 'object') throw new Error('payload object is required');
-    return this.request('/verse-gate', 'POST', payload);
+    return this.request('/revlm-gate', 'POST', payload);
   }
 
   db(dbName: string) {
-    return new VerseDBDatabase(dbName, this);
+    return new RevlmDBDatabase(dbName, this);
   }
 }
 
-export { Verse };
+export { Revlm };

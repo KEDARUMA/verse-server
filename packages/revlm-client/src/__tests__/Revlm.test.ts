@@ -1,20 +1,20 @@
 // Use .env for configuration
 require('dotenv').config();
 
-import { startServer, stopServer } from 'verse-server/server';
-import Verse from '../Verse';
+import { startServer, stopServer } from 'revlm-server/server';
+import Revlm from '../Revlm';
 
 jest.setTimeout(20000);
 
-describe('Verse.provisionalLogin (integration)', () => {
+describe('Revlm.provisionalLogin (integration)', () => {
   // Shared client and provisional token for tests
-  let v: Verse;
+  let v: Revlm;
   let provisionalToken: string | undefined;
 
   beforeAll(async () => {
     await startServer();
     // create client and perform provisional login once for reuse
-    v = new Verse(`http://localhost:${process.env.PORT || 3000}`,
+    v = new Revlm(`http://localhost:${process.env.PORT || 3000}`,
       {
         provisionalEnabled: true,
         provisionalAuthSecretMaster: process.env.PROVISIONAL_AUTH_SECRET_MASTER as string,

@@ -10,12 +10,12 @@ const config: Config = {
     },
   },
   moduleNameMapper: {
-    '^verse-shared/(.*)$': '<rootDir>/packages/verse-shared/src/$1',
-    '^verse-shared$': '<rootDir>/packages/verse-shared/src/index.ts',
-    '^verse-server/(.*)$': '<rootDir>/packages/verse-server/src/$1',
-    '^verse-server$': '<rootDir>/packages/verse-server/src/index.ts',
-    '^verse-client/(.*)$': '<rootDir>/packages/verse-client/src/$1',
-    '^verse-client$': '<rootDir>/packages/verse-client/src/index.ts',
+    '^revlm-shared/(.*)$': '<rootDir>/packages/revlm-shared/src/$1',
+    '^revlm-shared$': '<rootDir>/packages/revlm-shared/src/index.ts',
+    '^revlm-server/(.*)$': '<rootDir>/packages/revlm-server/src/$1',
+    '^revlm-server$': '<rootDir>/packages/revlm-server/src/index.ts',
+    '^revlm-client/(.*)$': '<rootDir>/packages/revlm-client/src/$1',
+    '^revlm-client$': '<rootDir>/packages/revlm-client/src/index.ts',
   },
 };
 
