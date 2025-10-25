@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
-import { User } from 'revlm-shared/models/user-types';
-import { AuthServer } from 'revlm-shared/auth-token';
+import { User } from '@kedaruma/revlm-shared/models/user-types';
+import { AuthServer } from '@kedaruma/revlm-shared/auth-token';
 import type { MongoClient as MongoClientType } from 'mongodb';
 const express = require('express');
 const dotenv = require('dotenv');
@@ -9,7 +9,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 import type { ObjectId as ObjectIdType } from 'bson';
 const { ObjectId, EJSON } = require('bson');
-import { ensureDefined } from 'revlm-shared/utils/asserts';
+import { ensureDefined } from '@kedaruma/revlm-shared/utils/asserts';
 
 dotenv.config();
 
@@ -57,7 +57,8 @@ function verifyToken(req: Request, res: Response, next: NextFunction) {
   if (!token) return sendResponse(req, res, { ok: false, error: 'No token provided' }, 401);
   const result = verifyJwtToken(token);
   if (!result.ok) {
-    if (result.reason === 'token_expired') return sendResponse(req, res, { ok: false, error: 'Token expired' }, 401);
+    const reason = (result as any).reason;
+    if (reason === 'token_expired') return sendResponse(req, res, { ok: false, error: 'Token expired' }, 401);
     return sendResponse(req, res, { ok: false, error: 'Invalid token' }, 403);
   }
   (req as any).user = result.payload;
@@ -122,7 +123,8 @@ app.post('/verify-token', (req: Request, res: Response) => {
   if (!token) return sendResponse(req, res, { ok: false, reason: 'no_token' }, 400);
   const result = verifyJwtToken(token);
   if (result.ok) return sendResponse(req, res, { ok: true, payload: result.payload }, 200);
-  if (result.reason === 'token_expired') return sendResponse(req, res, { ok: false, reason: 'token_expired' }, 401);
+  const reason = (result as any).reason;
+  if (reason === 'token_expired') return sendResponse(req, res, { ok: false, reason: 'token_expired' }, 401);
   return sendResponse(req, res, { ok: false, reason: 'invalid_token' }, 403);
 });
 
@@ -135,7 +137,7 @@ app.post('/refresh-token', (req: Request, res: Response) => {
   const result = refreshJwtToken(token);
   if (result.ok) return sendResponse(req, res, { ok: true, token: result.token, expiresIn: result.expiresIn }, 200);
   // Map reasons to status
-  switch (result.reason) {
+  switch ((result as any).reason) {
     case 'not_expired':
       return sendResponse(req, res, { ok: false, reason: 'not_expired' }, 400);
     case 'provisional_forbidden':

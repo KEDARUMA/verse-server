@@ -1,7 +1,7 @@
 // Use .env for configuration
 require('dotenv').config();
 
-import { startServer, stopServer } from 'revlm-server/server';
+import { startServer, stopServer } from '@kedaruma/revlm-server/server';
 import Revlm from '../Revlm';
 
 // Allow longer timeout for integration tests that wait for token expiry

@@ -1,4 +1,4 @@
-import Revlm from "revlm-client/Revlm";
+import Revlm from "./Revlm";
 import {
   AggregatePipelineStage, ChangeEvent, CountOptions, DeleteResult,
   Filter,
@@ -7,7 +7,7 @@ import {
   FindOptions, InsertManyResult, InsertOneResult, NewDocument,
   Update, UpdateOptions, UpdateResult, WatchOptionsFilter, WatchOptionsIds,
   Document
-} from "revlm-client/Revlm.types";
+} from "./Revlm.types";
 
 export default class RevlmCollection<T extends Document = Document> {
   private _revlm: Revlm;

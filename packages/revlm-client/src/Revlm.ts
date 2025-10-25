@@ -1,6 +1,6 @@
 import { EJSON } from 'bson';
-import { AuthClient } from 'revlm-shared';
-import RevlmDBDatabase from "revlm-client/RevlmDBDatabase";
+import { AuthClient } from '@kedaruma/revlm-shared';
+import RevlmDBDatabase from "./RevlmDBDatabase";
 
 export type RevlmOptions = {
   fetchImpl?: typeof fetch;
@@ -63,7 +63,7 @@ export default class Revlm {
   }
 
   // Call server to refresh token. Uses Authorization header with current token.
-  // On success, if autoSetToken is true and server returns a token, set it.
+  // On success, if autoSetToken is true and res.token is set, update the client token.
   async refreshToken(): Promise<RevlmResponse> {
     if (!this._token) return { ok: false, error: 'No token set' };
     const res = await this.request('/refresh-token', 'POST');

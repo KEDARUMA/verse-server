@@ -1,10 +1,12 @@
 {
-  "name": "revlm-server",
-  "version": "1.0.0",
+  "name": "@kedaruma/revlm-server",
+  "version": "1.0.2",
+  "private": true,
   "main": "dist/server.js",
   "types": "dist/server.d.ts",
-  "files": ["dist/", "src/"],
+  "files": ["dist/"],
   "license": "ISC",
+  "publishConfig": { "access": "public" },
   "scripts": {
     "start": "node dist/server.js",
     "build": "tsc -p src/tsconfig.json",
@@ -17,6 +19,6 @@
     "mongodb": "^6.20.0",
     "jsonwebtoken": "^9.0.2",
     "bcrypt": "^6.0.0",
-    "revlm-shared": "workspace:*"
+    "@kedaruma/revlm-shared": "1.0.0"
   }
 }

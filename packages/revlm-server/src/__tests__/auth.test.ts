@@ -1,10 +1,10 @@
 import request from 'supertest';
 import { ObjectId } from 'bson';
 import dotenv from 'dotenv';
-import { User } from 'revlm-shared/models/user-types';
-import { registerUserRaw, deleteUserRaw, startServer, stopServer } from 'revlm-server/server';
-import { AuthClient } from 'revlm-shared/auth-token';
-import { ensureDefined } from 'revlm-shared/utils/asserts';
+import { User } from '@kedaruma/revlm-shared/models/user-types';
+import { registerUserRaw, deleteUserRaw, startServer, stopServer } from '@kedaruma/revlm-server/server';
+import { AuthClient } from '@kedaruma/revlm-shared/auth-token';
+import { ensureDefined } from '@kedaruma/revlm-shared/utils/asserts';
 
 dotenv.config();
 

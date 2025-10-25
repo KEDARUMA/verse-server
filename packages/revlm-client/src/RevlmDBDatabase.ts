@@ -1,5 +1,5 @@
-import Revlm from "revlm-client/Revlm";
-import RevlmCollection from "revlm-client/RevlmCollection";
+import Revlm from "./Revlm";
+import RevlmCollection from "./RevlmCollection";
 import { Document } from "./Revlm.types";
 
 export default class RevlmDBDatabase {

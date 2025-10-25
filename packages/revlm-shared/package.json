@@ -1,9 +1,16 @@
 {
-  "name": "revlm-shared",
+  "name": "@kedaruma/revlm-shared",
   "version": "1.0.0",
+  "private": true,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist/", "src/"],
-  "license": "ISC"
+  "exports": {
+    ".": "./dist/index.js",
+    "./auth-token": "./dist/auth-token.js",
+    "./utils/asserts": "./dist/utils/asserts.js",
+    "./models/*": "./dist/models/*.js"
+  },
+  "files": ["dist/"],
+  "license": "ISC",
+  "publishConfig": { "access": "public" }
 }
-

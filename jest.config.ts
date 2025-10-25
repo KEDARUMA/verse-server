@@ -10,12 +10,12 @@ const config: Config = {
     },
   },
   moduleNameMapper: {
-    '^revlm-shared/(.*)$': '<rootDir>/packages/revlm-shared/src/$1',
-    '^revlm-shared$': '<rootDir>/packages/revlm-shared/src/index.ts',
-    '^revlm-server/(.*)$': '<rootDir>/packages/revlm-server/src/$1',
-    '^revlm-server$': '<rootDir>/packages/revlm-server/src/index.ts',
-    '^revlm-client/(.*)$': '<rootDir>/packages/revlm-client/src/$1',
-    '^revlm-client$': '<rootDir>/packages/revlm-client/src/index.ts',
+    '^@kedaruma/revlm-shared/(.*)$': '<rootDir>/packages/revlm-shared/src/$1',
+    '^@kedaruma/revlm-shared$': '<rootDir>/packages/revlm-shared/src/index.ts',
+    '^@kedaruma/revlm-server/(.*)$': '<rootDir>/packages/revlm-server/src/$1',
+    '^@kedaruma/revlm-server$': '<rootDir>/packages/revlm-server/src/index.ts',
+    '^@kedaruma/revlm-client/(.*)$': '<rootDir>/packages/revlm-client/src/$1',
+    '^@kedaruma/revlm-client$': '<rootDir>/packages/revlm-client/src/index.ts',
   },
 };
 
