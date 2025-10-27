@@ -17,9 +17,9 @@ const app = express();
 app.use(express.text({ type: 'application/ejson' }));
 app.use(express.json());
 
-const mongoUri = process.env.MONGO_URI;
 export let client: MongoClientType | undefined;
 
+const MONGO_URI = ensureDefined(process.env.MONGO_URI, 'Environment variable MONGO_URI is required but was not set');
 const USERS_DB_NAME = ensureDefined(process.env.USERS_DB_NAME, 'Environment variable USERS_DB_NAME is required but was not set');
 const USERS_COLLECTION = ensureDefined(process.env.USERS_COLLECTION_NAME, 'Environment variable USERS_COLLECTION_NAME is required but was not set');
 const PROVISIONAL_LOGIN_ENABLED =
@@ -199,9 +199,37 @@ function isServerListening(s: any) {
 export async function startServer() {
   if (isServerListening(server)) return server;
   const port = Number(process.env.PORT) || 3000;
-  const c = new MongoClient(mongoUri);
+  console.log('### 4', MONGO_URI)
+  const c = new MongoClient(MONGO_URI);
   client = c;
-  await c.connect();
+  try {
+    await c.connect();
+    await c.db().admin().ping();
+    // connection ok
+    console.log('MongoDB connected');
+    // Retrieve and log serverInfo and serverStatus for diagnostics
+    try {
+      const admin = c.db().admin();
+      const serverInfo = await admin.serverInfo();
+      const serverStatus = await admin.serverStatus();
+      console.log('### 10: MongoDB serverInfo:', serverInfo);
+      console.log('### 11: MongoDB serverStatus:', serverStatus);
+    } catch (adminErr: any) {
+      console.log('Failed to retrieve MongoDB admin info - Error name:', adminErr && adminErr.name, 'Error message:', adminErr && adminErr.message);
+      if (adminErr && adminErr.stack) console.log(adminErr.stack);
+    }
+  } catch (err: any) {
+    console.log('MongoDB connection error - Error name:', err && err.name, 'Error message:', err && err.message);
+    if (err && err.stack) console.log(err.stack);
+    try {
+      await c.close(true);
+    } catch (closeErr: any) {
+      console.log('Error closing MongoClient after failed connect - Error name:', closeErr && closeErr.name, 'Error message:', closeErr && closeErr.message);
+    }
+    client = undefined;
+    throw err;
+  }
+  console.log('### 5')
 
   app.use((req: any, res: any, next: any) => {
     if (req.is && req.is('application/ejson')) {
@@ -393,48 +421,7 @@ export async function stopServer() {
     });
     server = undefined;
   }
-  try {
-    if (client) {
-      try {
-        await client.close(true);
-      } catch (_e) {
-      }
-      try {
-        const topologyClose = (client as any)?.topology?.close;
-        if (typeof topologyClose === 'function') {
-          try { await (client as any).topology.close(); } catch (_e) { }
-        }
-      } catch (_e) { }
-      try { client = undefined; } catch (_e) { }
-    }
-  } catch (e) {
-  }
-
-  try {
-    const getHandles = (process as any)._getActiveHandles;
-    if (typeof getHandles === 'function') {
-      const deadline = Date.now() + 2000;
-      const targetCtors = new Set(['TLSSocket', 'Socket', 'TLSWrap', 'TCP']);
-      while (Date.now() < deadline) {
-        let destroyedOne = false;
-        const handles = getHandles();
-        for (const h of handles) {
-          try {
-            const ctor = h && h.constructor && h.constructor.name;
-            if (targetCtors.has(ctor)) {
-              const peer = h._peername || (h._parent && h._parent.remoteAddress) || null;
-              const servername = h.servername || (h._parent && h._parent.servername) || null;
-              if (peer || (servername && String(servername).includes('mongodb'))) {
-                try { h.destroy(); destroyedOne = true; } catch (_e) { }
-              }
-            }
-          } catch (e) {
-          }
-        }
-        if (!destroyedOne) break;
-        await new Promise((r) => setTimeout(r, 100));
-      }
-    }
-  } catch (e) {
+  if (client) {
+    await client.close(true);
   }
 }

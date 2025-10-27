@@ -3,6 +3,9 @@ require('dotenv').config();
 
 import { startServer, stopServer } from '@kedaruma/revlm-server/server';
 import Revlm from '../Revlm';
+import { MongoMemoryServer } from 'mongodb-memory-server';
+
+let mongod: MongoMemoryServer | undefined;
 
 jest.setTimeout(20000);
 
@@ -12,6 +15,10 @@ describe('Revlm.provisionalLogin (integration)', () => {
   let provisionalToken: string | undefined;
 
   beforeAll(async () => {
+    // Start in-memory MongoDB and set MONGO_URI before starting the server
+    mongod = await MongoMemoryServer.create();
+    process.env.MONGO_URI = mongod.getUri();
+
     await startServer();
     // create client and perform provisional login once for reuse
     v = new Revlm(`http://localhost:${process.env.PORT || 3000}`,
@@ -31,6 +38,15 @@ describe('Revlm.provisionalLogin (integration)', () => {
       await stopServer();
     } catch (e) {
       // ignore
+    }
+
+    if (mongod) {
+      try {
+        await mongod.stop();
+        mongod = undefined;
+      } catch (e) {
+        console.warn('Failed to stop mongodb-memory-server in Revlm.test afterAll:', e);
+      }
     }
   });
 

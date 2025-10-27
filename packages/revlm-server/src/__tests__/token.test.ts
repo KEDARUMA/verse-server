@@ -1,22 +1,38 @@
 import request from 'supertest';
-import jwt from 'jsonwebtoken';
+const jwt = require('jsonwebtoken');
 import dotenv from 'dotenv';
 import { startServer, stopServer } from '../server';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 
 dotenv.config();
+// Extend Jest hook timeout to allow mongodb-memory-server to download/start
+jest.setTimeout(120000);
 
 const SERVER_URL = 'http://localhost:' + (process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
 const REFRESH_WINDOW_SEC = Number(process.env.REFRESH_WINDOW_SEC ?? '300');
 
 let server: any;
+let mongod: MongoMemoryServer | undefined;
 
 beforeAll(async () => {
+  // Start in-memory MongoDB and set MONGO_URI before starting the server
+  mongod = await MongoMemoryServer.create();
+  process.env.MONGO_URI = mongod.getUri();
+
   server = await startServer();
 });
 
 afterAll(async () => {
   await stopServer();
+  if (mongod) {
+    try {
+      await mongod.stop();
+      mongod = undefined;
+    } catch (e) {
+      console.warn('Failed to stop mongodb-memory-server in token.test afterAll:', e);
+    }
+  }
 });
 
 describe('/verify-token', () => {
@@ -87,4 +103,3 @@ describe('/refresh-token', () => {
     expect(res.body.reason).toBe('refresh_window_exceeded');
   });
 });
-

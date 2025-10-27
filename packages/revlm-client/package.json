@@ -9,11 +9,10 @@
   "license": "ISC",
   "publishConfig": { "access": "public" },
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts",
-    "test": "jest --runInBand"
+    "build": "tsup src/index.ts --format cjs,esm --dts"
   },
   "dependencies": {
     "bson": "^6.10.4",
-    "@kedaruma/revlm-shared": "1.0.0"
+    "@kedaruma/revlm-shared": "workspace:*"
   }
 }

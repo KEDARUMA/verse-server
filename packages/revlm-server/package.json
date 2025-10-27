@@ -9,8 +9,7 @@
   "publishConfig": { "access": "public" },
   "scripts": {
     "start": "node dist/server.js",
-    "build": "tsc -p src/tsconfig.json",
-    "test": "jest --runInBand"
+    "build": "tsc -p src/tsconfig.json"
   },
   "dependencies": {
     "bson": "^6.10.4",
@@ -19,6 +18,9 @@
     "mongodb": "^6.20.0",
     "jsonwebtoken": "^9.0.2",
     "bcrypt": "^6.0.0",
-    "@kedaruma/revlm-shared": "1.0.0"
+    "@kedaruma/revlm-shared": "workspace:*"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^8.12.2"
   }
 }

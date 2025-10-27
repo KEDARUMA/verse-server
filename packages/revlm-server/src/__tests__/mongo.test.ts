@@ -2,6 +2,7 @@
 require('dotenv').config();
 
 import { MongoClient, Collection } from 'mongodb';
+import { MongoMemoryServer } from 'mongodb-memory-server';
 
 const DATABASE_NAME = 'revlm'
 
@@ -10,8 +11,13 @@ describe('MongoDB CRUD Test', () => {
   let db: any;
   let col: Collection;
   const tempCollection = `temp_test_collection_${Date.now()}`;
+  let mongod: MongoMemoryServer | undefined;
 
   beforeAll(async () => {
+    // mongodb-memory-server を起動してテスト用の MONGO_URI を設定
+    mongod = await MongoMemoryServer.create();
+    process.env.MONGO_URI = mongod.getUri();
+
     client = new MongoClient(process.env.MONGO_URI!);
     await client.connect();
     db = client.db(DATABASE_NAME);
@@ -26,6 +32,13 @@ describe('MongoDB CRUD Test', () => {
       console.warn(`Collection ${tempCollection} drop failed:`, err);
     } finally {
       await client.close();
+      if (mongod) {
+        try {
+          await mongod.stop();
+        } catch (e) {
+          console.warn('Failed to stop mongodb-memory-server:', e);
+        }
+      }
     }
   });
 
@@ -54,4 +67,3 @@ describe('MongoDB CRUD Test', () => {
     expect(docs.length).toBe(0);
   });
 });
-
