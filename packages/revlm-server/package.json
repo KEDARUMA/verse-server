@@ -8,8 +8,8 @@
   "license": "ISC",
   "publishConfig": { "access": "public" },
   "scripts": {
-    "start": "node dist/server.js",
-    "build": "tsc -p src/tsconfig.json"
+    "start": "node dist/start.js",
+    "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "bson": "^6.10.4",

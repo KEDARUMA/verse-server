@@ -14,5 +14,8 @@
   "license": "ISC",
   "publishConfig": { "access": "public" },
   "scripts": {
+  },
+  "dependencies": {
+    "bson": "^6.10.4"
   }
 }
