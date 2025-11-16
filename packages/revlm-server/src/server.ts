@@ -33,8 +33,7 @@ export interface ServerConfig {
 const serverConfigDefaults: Partial<ServerConfig> = {
   provisionalLoginEnabled: false,
   jwtExpiresIn: '1h',
-  refreshWindowSec: 300,
-  port: 3000,
+  refreshWindowSec: 300
 };
 
 let serverConfig: ServerConfig | undefined;

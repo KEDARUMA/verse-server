@@ -12,14 +12,17 @@ import { AuthClient } from '@kedaruma/revlm-shared/auth-token';
 import { ensureDefined } from '@kedaruma/revlm-shared/utils/asserts';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { MongoClient } from 'mongodb';
+import path from 'path';
 
 // 環境変数を読み込む（.env を参照）テスト内で必要な設定が process.env に入る。
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, 'auth.test.env') });
 
 // mongodb-memory-server は起動に時間がかかる場合があるためタイムアウトを延長
 jest.setTimeout(120000);
 
 const MONGO_URI = ensureDefined(process.env.MONGO_URI);
+const USERS_DB_NAME = ensureDefined(process.env.USERS_DB_NAME, 'USERS_DB_NAME is required');
+const USERS_COLLECTION_NAME = ensureDefined(process.env.USERS_COLLECTION_NAME, 'USERS_COLLECTION_NAME is required');
 
 // テストで利用するダミー認証情報
 const testAuthId: string = 'testuser_' + Date.now();
@@ -32,6 +35,7 @@ const testUser: User = {
 };
 
 let server;
+let serverUrl: string;
 let provisionalPassword: string;
 let mongod: MongoMemoryServer | undefined;
 
@@ -59,12 +63,20 @@ beforeAll(async () => {
     usersCollectionName: ensureDefined(process.env.USERS_COLLECTION_NAME, 'USERS_COLLECTION_NAME is required'),
     jwtSecret: ensureDefined(process.env.JWT_SECRET, 'JWT_SECRET is required'),
     provisionalLoginEnabled: process.env.PROVISIONAL_LOGIN_ENABLED === 'true' || process.env.PROVISIONAL_LOGIN_ENABLED === '1',
-    provisionalAuthId: process.env.PROVISIONAL_AUTH_ID,
-    provisionalAuthSecretMaster: process.env.PROVISIONAL_AUTH_SECRET_MASTER,
-    provisionalAuthDomain: process.env.PROVISIONAL_AUTH_DOMAIN,
-    port: 0
+    provisionalAuthId: ensureDefined(process.env.PROVISIONAL_AUTH_ID, 'PROVISIONAL_AUTH_ID is required'),
+    provisionalAuthSecretMaster: ensureDefined(process.env.PROVISIONAL_AUTH_SECRET_MASTER, 'PROVISIONAL_AUTH_SECRET_MASTER is required'),
+    provisionalAuthDomain: ensureDefined(process.env.PROVISIONAL_AUTH_DOMAIN, 'PROVISIONAL_AUTH_DOMAIN is required'),
+    port: Number(ensureDefined(process.env.PORT, 'PORT is required')),
   });
-  console.log('beforeAll: server started');
+  // set serverUrl from actual listening port
+  try {
+    const addr: any = server && server.address ? server.address() : undefined;
+    const port = addr && typeof addr === 'object' ? addr.port : (process.env.PORT ? Number(process.env.PORT) : 3000);
+    serverUrl = `http://localhost:${port}`;
+  } catch (_e) {
+    serverUrl = `http://localhost:${process.env.PORT || 3000}`;
+  }
+  console.log('beforeAll: server started at', serverUrl);
 
   // provisional 認証情報関連（テストでは provisionalPassword を生成するが、registerUserRaw を使うため API フローを必須にはしていない）
   const authDomain = process.env.PROVISIONAL_AUTH_DOMAIN;
@@ -77,13 +89,20 @@ beforeAll(async () => {
   console.log('beforeAll: provisional password generated');
 
   try {
-    // テストのセットアップを簡潔にするため、内部ユーティリティ registerUserRaw を利用して直接ユーザを作成している
-    // (注) これは実運用の /provisional-login -> /registerUser フローを経由していないため、E2E とは異なる点に注意
-    await registerUserRaw(testUser, testPassword);
-    console.log('beforeAll: test user registered');
+    // Use provisional login to obtain a token, then register test user via API
+    const provisionalLoginRes = await request(serverUrl)
+      .post('/provisional-login')
+      .send({ authId: provisionalAuthId, password: provisionalPassword });
+    if (!provisionalLoginRes.body || !provisionalLoginRes.body.ok) throw new Error('provisional-login failed');
+    const provisionalToken = provisionalLoginRes.body.token as string;
+
+    const regRes = await request(serverUrl)
+      .post('/registerUser')
+      .set('Authorization', `Bearer ${provisionalToken}`)
+      .send({ user: testUser, password: testPassword });
+    if (!regRes.body || !regRes.body.ok) throw new Error('registerUser via API failed');
+    console.log('beforeAll: test user registered via API');
   } catch (error) {
-    // セットアップに失敗した場合、ここでログを残す。
-    // テスト実行を続けるかどうかはここでの失敗の深刻度に依存するが、ここでは例外は握らずログを出すのみ
     console.error('Failed to register test account in beforeAll:', error);
   }
   console.log('beforeAll: end');
@@ -128,7 +147,7 @@ afterAll(async () => {
 describe('Auth API Integration', () => {
   it('registerUser API: should register a new user with valid token', async () => {
     // このテストではまず /login でテストユーザでログインし JWT を取得
-    const loginRes = await request(SERVER_URL)
+    const loginRes = await request(serverUrl)
       .post('/login')
       .send({ authId: testAuthId as string, password: testPassword });
     const token = loginRes.body.token;
@@ -142,7 +161,7 @@ describe('Auth API Integration', () => {
     };
 
     // /registerUser を叩き、期待通りユーザが作成されることを確認
-    const res = await request(SERVER_URL)
+    const res = await request(serverUrl)
       .post('/registerUser')
       .set('Authorization', `Bearer ${token}`)
       .send({ user: newUser, password: 'api_test_pass' });
@@ -154,13 +173,13 @@ describe('Auth API Integration', () => {
 
   it('deleteUser API: should delete user with valid token', async () => {
     // /login して JWT を取得
-    const loginRes = await request(SERVER_URL)
+    const loginRes = await request(serverUrl)
       .post('/login')
       .send({ authId: testAuthId as string, password: testPassword });
     const token = loginRes.body.token;
 
     // 先ほど作成した api_test_user を削除する API を呼ぶ
-    const res = await request(SERVER_URL)
+    const res = await request(serverUrl)
       .post('/deleteUser')
       .set('Authorization', `Bearer ${token}`)
       .send({ authId: 'api_test_user' });
@@ -174,12 +193,14 @@ describe('Auth API Integration', () => {
 // Provisional Login 関連のテスト群
 describe('Provisional Login API', () => {
   it('should return a token for valid provisional credentials', async () => {
-    // provisional 認証情報（env 経由）でログインを試み、トークンとユーザ情報が返ることを確認
-    const res = await request(SERVER_URL)
+    // generate a fresh provisional password (nonce replay is rejected)
+    const provisionalClient = new AuthClient({ secretMaster: process.env.PROVISIONAL_AUTH_SECRET_MASTER!, authDomain: process.env.PROVISIONAL_AUTH_DOMAIN! });
+    const freshPassword = await provisionalClient.producePassword(process.env.PROVISIONAL_AUTH_ID!);
+    const res = await request(serverUrl)
       .post('/provisional-login')
       .send({
         authId: process.env.PROVISIONAL_AUTH_ID,
-        password: provisionalPassword
+        password: freshPassword
       });
     expect(res.body.ok).toBe(true);
     expect(res.body.token).toBeDefined();
@@ -188,7 +209,7 @@ describe('Provisional Login API', () => {
 
   it('should fail for invalid provisional credentials', async () => {
     // 不正な資格情報では ok: false が返ることを確認
-    const res = await request(SERVER_URL)
+    const res = await request(serverUrl)
       .post('/provisional-login')
       .send({ authId: 'wrong_id', password: 'wrong_password' });
     expect(res.body.ok).toBe(false);
@@ -199,16 +220,16 @@ describe('Provisional Login API', () => {
     // provisional トークンは限定的な権限を持つため、/revlm-gate など保護されたエンドポイントにアクセスしても 403 になることを確認
     const provisionalClient = new AuthClient({ secretMaster: process.env.PROVISIONAL_AUTH_SECRET_MASTER!, authDomain: process.env.PROVISIONAL_AUTH_DOMAIN! });
     const freshPassword = await provisionalClient.producePassword(process.env.PROVISIONAL_AUTH_ID!);
-    const loginRes = await request(SERVER_URL)
+    const loginRes = await request(serverUrl)
       .post('/provisional-login')
       .send({ authId: process.env.PROVISIONAL_AUTH_ID, password: freshPassword });
     expect(loginRes.body.ok).toBe(true);
     const token = loginRes.body.token;
 
-    const res = await request(SERVER_URL)
+    const res = await request(serverUrl)
       .post('/revlm-gate')
       .set('Authorization', `Bearer ${token}`)
-      .send({ dn: USERS_DB_NAME, collection: USERS_COLLECTION_NAME, method: 'find', filter: {} });
+      .send({ db: USERS_DB_NAME, collection: USERS_COLLECTION_NAME, method: 'find', filter: {} });
 
     expect(res.status).toBe(403);
     expect(res.body.ok).toBe(false);
