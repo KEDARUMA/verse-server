@@ -3,11 +3,11 @@ import { User } from '@kedaruma/revlm-shared/models/user-types';
 import { AuthServer } from '@kedaruma/revlm-shared/auth-token';
 import type { MongoClient as MongoClientType } from 'mongodb';
 const express = require('express');
-const { MongoClient } = require('mongodb');
+import { MongoClient } from 'mongodb';
+import { ObjectId, EJSON } from 'bson';
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 import type { ObjectId as ObjectIdType } from 'bson';
-const { ObjectId, EJSON } = require('bson');
 
 const app = express();
 app.use(express.text({ type: 'application/ejson' }));

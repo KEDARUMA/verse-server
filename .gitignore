@@ -33,3 +33,7 @@ jest-cache/
 /*.tgz
 # local overrides
 .local
+
+# TypeScript incremental build info
+*.tsbuildinfo
+**/tsconfig.tsbuildinfo

@@ -13,8 +13,9 @@
 
     // Environment Settings
     // See also https://aka.ms/tsconfig/module
-    "module": "commonjs",
+    "module": "NodeNext",
     "target": "esnext",
+    "moduleResolution": "nodenext",
 
     // For nodejs:
     // "lib": ["esnext"],
@@ -45,14 +46,11 @@
     "noUncheckedSideEffectImports": true,
     "moduleDetection": "force",
     "skipLibCheck": true,
-    "moduleResolution": "node",
     "esModuleInterop": true,
 
     // Base URL and Paths for Workspace Packages
     "baseUrl": ".",
     "paths": {
-      "@kedaruma/revlm-shared/*": ["packages/revlm-shared/src/*"],
-      "@kedaruma/revlm-shared": ["packages/revlm-shared/src/index.ts"],
       "@kedaruma/revlm-client/*": ["packages/revlm-client/src/*"],
       "@kedaruma/revlm-server/*": ["packages/revlm-server/src/*"]
     }

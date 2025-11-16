@@ -2,18 +2,50 @@
   "name": "@kedaruma/revlm-shared",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./auth-token": "./dist/auth-token.js",
-    "./utils/asserts": "./dist/utils/asserts.js",
-    "./models/*": "./dist/models/*.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
+    "./auth-token": {
+      "types": "./dist/auth-token.d.ts",
+      "import": "./dist/auth-token.js",
+      "require": "./dist/auth-token.js"
+    },
+    "./models/user-types": {
+      "types": "./dist/models/user-types.d.ts",
+      "import": "./dist/models/user-types.js",
+      "require": "./dist/models/user-types.js"
+    },
+    "./utils/asserts": {
+      "types": "./dist/utils/asserts.d.ts",
+      "import": "./dist/utils/asserts.js",
+      "require": "./dist/utils/asserts.js"
+    },
+    "./models/*": {
+      "types": "./dist/models/*.d.ts",
+      "import": "./dist/models/*.js",
+      "require": "./dist/models/*.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "models/*": ["dist/models/*.d.ts"],
+      "models/user-types": ["dist/models/user-types.d.ts"],
+      "auth-token": ["dist/auth-token.d.ts"],
+      "utils/asserts": ["dist/utils/asserts.d.ts"],
+      "*": ["dist/index.d.ts"]
+    }
   },
   "files": ["dist/"],
   "license": "ISC",
   "publishConfig": { "access": "public" },
   "scripts": {
+    "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "bson": "^6.10.4"

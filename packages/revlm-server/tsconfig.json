@@ -2,8 +2,15 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "../..",
-    "outDir": "dist"
+    "outDir": "dist",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true
   },
+  "references": [
+    { "path": "../revlm-shared" }
+  ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/__tests__", "**/*.test.ts"]
 }

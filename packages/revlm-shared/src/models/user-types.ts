@@ -1,5 +1,5 @@
 import { ObjectId } from 'bson';
-import { DefaultId, MongoDocBase } from './mongo-doc-base-types';
+import { DefaultId, MongoDocBase } from './mongo-doc-base-types.js';
 
 export interface UserBase extends MongoDocBase {
   _id?: DefaultId;
@@ -11,4 +11,3 @@ export interface UserBase extends MongoDocBase {
 }
 
 export interface User extends UserBase {}
-
