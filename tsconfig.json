@@ -52,7 +52,8 @@
     "baseUrl": ".",
     "paths": {
       "@kedaruma/revlm-client/*": ["packages/revlm-client/src/*"],
-      "@kedaruma/revlm-server/*": ["packages/revlm-server/src/*"]
+      "@kedaruma/revlm-server/*": ["packages/revlm-server/src/*"],
+      "@kedaruma/revlm-shared/*": ["packages/revlm-shared/src/*"]
     }
   },
   "include": ["src/**/*", "packages/**/*"],

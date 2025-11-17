@@ -8,6 +8,7 @@ import { ObjectId, EJSON } from 'bson';
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 import type { ObjectId as ObjectIdType } from 'bson';
+import http from "http";
 
 const app = express();
 app.use(express.text({ type: 'application/ejson' }));
@@ -224,7 +225,7 @@ function isServerListening(s: any) {
   }
 }
 
-export async function startServer(config: ServerConfig) {
+export async function startServer(config: ServerConfig): Promise<http.Server> {
   // validate existence
   if (!config) throw new Error('Configuration object is required');
 

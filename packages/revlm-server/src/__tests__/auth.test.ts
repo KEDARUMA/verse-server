@@ -12,10 +12,10 @@ import request from 'supertest';
 import { ObjectId } from 'bson';
 import dotenv from 'dotenv';
 import { User } from '@kedaruma/revlm-shared/models/user-types';
-import { deleteUserRaw, startServer, stopServer } from '@kedaruma/revlm-server/server';
+import { stopServer } from '@kedaruma/revlm-server/server';
 import { AuthClient } from '@kedaruma/revlm-shared/auth-token';
 import { ensureDefined } from '@kedaruma/revlm-shared/utils/asserts';
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { SetupTestEnvironmentResult, setupTestEnvironment, createTestUser, cleanupTestUser, cleanupTestEnvironment } from '@kedaruma/revlm-server/__tests__/setupTestMongo';
 import path from 'path';
 
 // Load environment variables (refer to .env) so that the necessary settings for the test are stored in process.env.
@@ -44,10 +44,8 @@ const testUser: User = {
   merchantId: new ObjectId(),
 };
 
-let server;
+let testEnv: SetupTestEnvironmentResult;
 let serverUrl: string;
-let provisionalPassword: string;
-let mongod: MongoMemoryServer | undefined;
 
 // beforeAll: Test setup
 // - If MONGO_URI is not set, start MongoMemoryServer
@@ -60,73 +58,38 @@ let mongod: MongoMemoryServer | undefined;
 beforeAll(async () => {
   console.log('beforeAll: start');
 
-  // If MONGO_URI is not specified, start an in-memory MongoDB using mongodb-memory-server
-  // MONGO_URI の指定が無い場合は mongodb-memory-server を起動
-  if (!MONGO_URI) {
-    // Start an in-memory MongoDB server
-    try {
-      mongod = await MongoMemoryServer.create({ instance: { dbName: 'testdb' } });
-      if (!mongod) {
-        throw new Error('MongoMemoryServer.create() returned null/undefined');
-      }
-    } catch (err) {
-      console.error('Failed to start MongoMemoryServer:', err);
-      throw err; // stop the test run
+  // Setup test environment (MongoDB + Server) using the utility function
+  // ユーティリティ関数を使用してテスト環境（MongoDB + サーバー）をセットアップ
+  testEnv = await setupTestEnvironment({
+    mongoUri: MONGO_URI,
+    dbName: USERS_DB_NAME,
+    serverConfig: {
+      mongoUri: '<Set with delay>',
+      usersDbName: USERS_DB_NAME,
+      usersCollectionName: USERS_COLLECTION_NAME,
+      jwtSecret: ensureDefined(process.env.JWT_SECRET, 'JWT_SECRET is required'),
+      provisionalLoginEnabled: process.env.PROVISIONAL_LOGIN_ENABLED === 'true' || process.env.PROVISIONAL_LOGIN_ENABLED === '1',
+      provisionalAuthId: PROVISIONAL_AUTH_ID,
+      provisionalAuthSecretMaster: PROVISIONAL_AUTH_SECRET_MASTER,
+      provisionalAuthDomain: PROVISIONAL_AUTH_DOMAIN,
+      port: Number(ensureDefined(process.env.PORT, 'PORT is required')),
     }
-    MONGO_URI = mongod.getUri();
-  }
-
-  // start the revlm-server
-  server = await startServer({
-    mongoUri: MONGO_URI!,
-    usersDbName: ensureDefined(process.env.USERS_DB_NAME, 'USERS_DB_NAME is required'),
-    usersCollectionName: ensureDefined(process.env.USERS_COLLECTION_NAME, 'USERS_COLLECTION_NAME is required'),
-    jwtSecret: ensureDefined(process.env.JWT_SECRET, 'JWT_SECRET is required'),
-    provisionalLoginEnabled: process.env.PROVISIONAL_LOGIN_ENABLED === 'true' || process.env.PROVISIONAL_LOGIN_ENABLED === '1',
-    provisionalAuthId: ensureDefined(process.env.PROVISIONAL_AUTH_ID, 'PROVISIONAL_AUTH_ID is required'),
-    provisionalAuthSecretMaster: ensureDefined(process.env.PROVISIONAL_AUTH_SECRET_MASTER, 'PROVISIONAL_AUTH_SECRET_MASTER is required'),
-    provisionalAuthDomain: ensureDefined(process.env.PROVISIONAL_AUTH_DOMAIN, 'PROVISIONAL_AUTH_DOMAIN is required'),
-    port: Number(ensureDefined(process.env.PORT, 'PORT is required')),
   });
 
-  // set serverUrl from actual listening port
-  try {
-    const addr: any = server && server.address ? server.address() : undefined;
-    const port = addr && typeof addr === 'object' ? addr.port : (process.env.PORT ? Number(process.env.PORT) : 3000);
-    serverUrl = `http://localhost:${port}`;
-  } catch (_e) {
-    serverUrl = `http://localhost:${process.env.PORT || 3000}`;
-  }
+  serverUrl = testEnv.serverUrl;
   console.log('beforeAll: server started at', serverUrl);
 
-  // Obtain a token via provisional login and use it to register the test user through the API
-  // provisional login でトークンを取得し、そのトークンを用いてテストユーザを API 経由で登録する
-  try {
-    // Generate a password for provisional login
-    // provisional login のパスワードを生成
-    if (!PROVISIONAL_AUTH_DOMAIN || !PROVISIONAL_AUTH_SECRET_MASTER || !PROVISIONAL_AUTH_ID) throw new Error('provisional login env missing');
-    const provisionalClient = new AuthClient({secretMaster: PROVISIONAL_AUTH_SECRET_MASTER, authDomain: PROVISIONAL_AUTH_DOMAIN});
-    provisionalPassword = await provisionalClient.producePassword(PROVISIONAL_AUTH_ID);
+  // Create test user using the utility function
+  // ユーティリティ関数を使用してテストユーザを作成
+  await createTestUser({
+    serverUrl,
+    user: testUser,
+    password: testPassword,
+    provisionalAuthId: PROVISIONAL_AUTH_ID,
+    provisionalAuthSecretMaster: PROVISIONAL_AUTH_SECRET_MASTER,
+    provisionalAuthDomain: PROVISIONAL_AUTH_DOMAIN,
+  });
 
-    // Perform provisional login to obtain a token
-    // provisional login で仮認証を行いトークンを取得
-    const provisionalLoginRes = await request(serverUrl)
-      .post('/provisional-login')
-      .send({ authId: PROVISIONAL_AUTH_ID, password: provisionalPassword });
-    if (!provisionalLoginRes.body || !provisionalLoginRes.body.ok) throw new Error('provisional-login failed');
-    const provisionalToken = provisionalLoginRes.body.token as string;
-
-    // Register the test user
-    // テストユーザを登録
-    const regRes = await request(serverUrl)
-      .post('/registerUser')
-      .set('Authorization', `Bearer ${provisionalToken}`)
-      .send({ user: testUser, password: testPassword });
-    if (!regRes.body || !regRes.body.ok) throw new Error('registerUser via API failed');
-    console.log('beforeAll: test user registered via API');
-  } catch (error) {
-    console.error('Failed to register test account in beforeAll:', error);
-  }
   console.log('beforeAll: end');
 });
 
@@ -141,31 +104,17 @@ beforeAll(async () => {
 afterAll(async () => {
   console.log('afterAll: start');
 
-  // Delete the user used in the test
-  // テストで使用したユーザを削除
+  // Delete the user used in the test using the utility function
+  // ユーティリティ関数を使用してテストで使用したユーザを削除
   try {
-    if (testAuthId) {
-      await deleteUserRaw(undefined, testAuthId);
-      console.log('afterAll: test user deleted');
-    }
+    await cleanupTestUser(testAuthId);
   } catch (error) {
-    console.error('Failed to delete test account in afterAll:', error);
+    console.error('Failed to cleanup test user in afterAll:', error);
   }
 
-  console.log('afterAll: stopping server and server-side resources');
-  await stopServer();
-  console.log('afterAll: stopServer done');
-
-  // Stop the in-memory mongo server we started in beforeAll
-  if (mongod) {
-    try {
-      await mongod.stop();
-      mongod = undefined;
-      console.log('afterAll: mongod stopped');
-    } catch (e) {
-      console.warn('Failed to stop mongodb-memory-server in afterAll:', e);
-    }
-  }
+  // Clean up test environment (stop server and MongoDB) using the utility function
+  // ユーティリティ関数を使用してテスト環境をクリーンアップ（サーバーと MongoDB を停止）
+  await cleanupTestEnvironment(testEnv, stopServer);
 
   console.log('afterAll: done');
 });
