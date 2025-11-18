@@ -193,3 +193,11 @@ export async function cleanupTestEnvironment(
   console.log('Test environment cleanup done');
 }
 
+// ---- Dummy test to satisfy Jest when this helper resides under __tests__ ----
+// このヘルパーが __tests__ 配下にあるため、Jest がテストとして実行した際に
+// "Your test suite must contain at least one test" を避けるための最小限のテスト。
+describe('setupTestMongo helpers smoke', () => {
+  it('exports helper functions', () => {
+    expect(typeof setupTestEnvironment).toBe('function');
+  });
+});
