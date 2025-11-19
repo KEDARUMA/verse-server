@@ -12,7 +12,6 @@ import request from 'supertest';
 import { ObjectId } from 'bson';
 import dotenv from 'dotenv';
 import { User } from '@kedaruma/revlm-shared/models/user-types';
-import { stopServer } from '@kedaruma/revlm-server/server';
 import { AuthClient } from '@kedaruma/revlm-shared/auth-token';
 import { ensureDefined } from '@kedaruma/revlm-shared/utils/asserts';
 import { SetupTestEnvironmentResult, setupTestEnvironment, createTestUser, cleanupTestUser, cleanupTestEnvironment } from '@kedaruma/revlm-server/__tests__/setupTestMongo';
@@ -26,7 +25,6 @@ dotenv.config({ path: path.join(__dirname, 'test.env') });
 // mongodb-memory-server は起動に時間がかかる場合があるためタイムアウトを延長
 jest.setTimeout(120000);
 
-let MONGO_URI = process.env.MONGO_URI
 const USERS_DB_NAME = ensureDefined(process.env.USERS_DB_NAME, 'USERS_DB_NAME is required');
 const USERS_COLLECTION_NAME = ensureDefined(process.env.USERS_COLLECTION_NAME, 'USERS_COLLECTION_NAME is required');
 const PROVISIONAL_AUTH_DOMAIN = ensureDefined(process.env.PROVISIONAL_AUTH_DOMAIN);
@@ -61,10 +59,8 @@ beforeAll(async () => {
   // Setup test environment (MongoDB + Server) using the utility function
   // ユーティリティ関数を使用してテスト環境（MongoDB + サーバー）をセットアップ
   testEnv = await setupTestEnvironment({
-    mongoUri: MONGO_URI,
-    dbName: USERS_DB_NAME,
     serverConfig: {
-      mongoUri: '<Set with delay>',
+      mongoUri: process.env.MONGO_URI as string,
       usersDbName: USERS_DB_NAME,
       usersCollectionName: USERS_COLLECTION_NAME,
       jwtSecret: ensureDefined(process.env.JWT_SECRET, 'JWT_SECRET is required'),
@@ -72,7 +68,7 @@ beforeAll(async () => {
       provisionalAuthId: PROVISIONAL_AUTH_ID,
       provisionalAuthSecretMaster: PROVISIONAL_AUTH_SECRET_MASTER,
       provisionalAuthDomain: PROVISIONAL_AUTH_DOMAIN,
-      port: Number(ensureDefined(process.env.PORT, 'PORT is required')),
+      port: Number(process.env.PORT),
     }
   });
 
@@ -114,7 +110,7 @@ afterAll(async () => {
 
   // Clean up test environment (stop server and MongoDB) using the utility function
   // ユーティリティ関数を使用してテスト環境をクリーンアップ（サーバーと MongoDB を停止）
-  await cleanupTestEnvironment(testEnv, stopServer);
+  await cleanupTestEnvironment(testEnv);
 
   console.log('afterAll: done');
 });

@@ -10,7 +10,6 @@
 import request from 'supertest';
 const jwt = require('jsonwebtoken');
 import dotenv from 'dotenv';
-import { stopServer } from '../server';
 import { SetupTestEnvironmentResult, setupTestEnvironment, cleanupTestEnvironment } from './setupTestMongo';
 import { ensureDefined } from '@kedaruma/revlm-shared/utils/asserts';
 import path from 'path';
@@ -35,15 +34,13 @@ beforeAll(async () => {
   // Setup test environment (MongoDB + Server) using the utility function
   // ユーティリティ関数を使用してテスト環境（MongoDB + サーバー）をセットアップ
   testEnv = await setupTestEnvironment({
-    mongoUri: process.env.MONGO_URI,
-    dbName: 'testdb',
     serverConfig: {
-      mongoUri: '<Set with delay>',
+      mongoUri: process.env.MONGO_URI as string,
       usersDbName: ensureDefined(process.env.USERS_DB_NAME || 'testdb', 'USERS_DB_NAME is required'),
       usersCollectionName: ensureDefined(process.env.USERS_COLLECTION_NAME || 'users', 'USERS_COLLECTION_NAME is required'),
       jwtSecret: JWT_SECRET,
       provisionalLoginEnabled: false,
-      port: Number(process.env.PORT || 3000),
+      port: Number(process.env.PORT),
     }
   });
 
@@ -57,7 +54,7 @@ afterAll(async () => {
 
   // Clean up test environment (stop server and MongoDB) using the utility function
   // ユーティリティ関数を使用してテスト環境をクリーンアップ（サーバーと MongoDB を停止）
-  await cleanupTestEnvironment(testEnv, stopServer);
+  await cleanupTestEnvironment(testEnv);
 
   console.log('afterAll: done');
 });

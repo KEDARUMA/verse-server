@@ -17,7 +17,6 @@ import {
   cleanupTestUser,
   cleanupTestEnvironment,
 } from '@kedaruma/revlm-server/__tests__/setupTestMongo';
-import { stopServer } from '@kedaruma/revlm-server/server';
 
 // Load environment variables
 // 環境変数を読み込む
@@ -52,10 +51,8 @@ beforeAll(async () => {
   // Start server + MongoDB (enable provisional login)
   // サーバ + MongoDB 起動（provisional login 有効化）
   testEnv = await setupTestEnvironment({
-    mongoUri: process.env.MONGO_URI,
-    dbName: USERS_DB_NAME,
     serverConfig: {
-      mongoUri: '<Set later>',
+      mongoUri: process.env.MONGO_URI as string,
       usersDbName: USERS_DB_NAME,
       usersCollectionName: USERS_COLLECTION_NAME,
       jwtSecret: ensureDefined(process.env.JWT_SECRET, 'JWT_SECRET is required'),
@@ -63,7 +60,7 @@ beforeAll(async () => {
       provisionalAuthId: PROVISIONAL_AUTH_ID,
       provisionalAuthSecretMaster: PROVISIONAL_AUTH_SECRET_MASTER,
       provisionalAuthDomain: PROVISIONAL_AUTH_DOMAIN,
-      port: Number(ensureDefined(process.env.PORT, 'PORT is required')),
+      port: Number(process.env.PORT),
     },
   });
   serverUrl = testEnv.serverUrl;
@@ -102,7 +99,7 @@ afterAll(async () => {
   }
   // Stop server/DB
   // サーバ/DB 停止
-  await cleanupTestEnvironment(testEnv, stopServer);
+  await cleanupTestEnvironment(testEnv);
 });
 
 // helper: call /revlm-gate

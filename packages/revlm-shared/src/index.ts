@@ -1,2 +1,2 @@
-export * from './auth-token.js';
+export * from './auth-token';
 

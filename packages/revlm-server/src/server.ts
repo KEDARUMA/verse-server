@@ -9,6 +9,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 import type { ObjectId as ObjectIdType } from 'bson';
 import http from "http";
+import { ensureDefined } from '@kedaruma/revlm-shared/utils/asserts';
 
 const app = express();
 app.use(express.text({ type: 'application/ejson' }));
@@ -28,7 +29,7 @@ export interface ServerConfig {
   jwtSecret: string;
   jwtExpiresIn?: string;
   refreshWindowSec?: number;
-  port?: number;
+  port: number;
 }
 
 const serverConfigDefaults: Partial<ServerConfig> = {
@@ -265,8 +266,7 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
   }
 
   if (isServerListening(server)) return server;
-  const port = Number(merged.port!);
-
+  const port = Number.isFinite(merged.port) ? 0: merged.port;
   const c = new MongoClient(MONGO_URI as string);
   client = c;
   try {
@@ -274,17 +274,6 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
     await c.db().admin().ping();
     // connection ok
     console.log('MongoDB connected');
-    // Retrieve and log serverInfo and serverStatus for diagnostics
-    try {
-      const admin = c.db().admin();
-      const serverInfo = await admin.serverInfo();
-      const serverStatus = await admin.serverStatus();
-      console.log('MongoDB serverInfo:', serverInfo);
-      console.log('MongoDB serverStatus:', serverStatus);
-    } catch (adminErr: any) {
-      console.log('Failed to retrieve MongoDB admin info - Error name:', adminErr && adminErr.name, 'Error message:', adminErr && adminErr.message);
-      if (adminErr && adminErr.stack) console.log(adminErr.stack);
-    }
   } catch (err: any) {
     console.log('MongoDB connection error - Error name:', err && err.name, 'Error message:', err && err.message);
     if (err && err.stack) console.log(err.stack);

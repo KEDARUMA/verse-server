@@ -11,10 +11,12 @@ import http, { Server } from 'http';
 import {AuthClient} from "@kedaruma/revlm-shared/auth-token";
 import request from "supertest";
 
+export interface ServerConfigEnv extends Omit<ServerConfig, 'mongoUri'> {
+  mongoUri?: string | null;
+}
+
 export interface SetupTestEnvironmentOptions {
-  mongoUri?: string | undefined; // If provided, use this URI; if undefined, start MongoMemoryServer
-  dbName?: string;               // Default: 'testdb'
-  serverConfig: ServerConfig;   // Server configuration (e.g., ServerConfig from revlm-server)
+  serverConfig: ServerConfigEnv;   // Server configuration (e.g., ServerConfig from revlm-server)
 }
 
 export interface SetupTestEnvironmentResult {
@@ -29,17 +31,17 @@ export interface SetupTestEnvironmentResult {
  * @param options - Configuration options
  * @returns MongoDB URI, mongod instance (if started), server instance, and server URL
  */
-export async function setupTestEnvironment<TServerConfig = any>(
+export async function setupTestEnvironment(
   options: SetupTestEnvironmentOptions
 ): Promise<SetupTestEnvironmentResult> {
 
   // Setup MongoDB (start MongoMemoryServer if mongoUri is not provided)
   // MongoDB をセットアップ（mongoUri が未指定の場合は MongoMemoryServer を起動）
-  let mongoUri = options.mongoUri;
+  let mongoUri = options.serverConfig.mongoUri;
   let mongod: MongoMemoryServer | undefined;
 
   if (!mongoUri) {
-    const dbName = options.dbName || 'testdb';
+    const dbName = options.serverConfig.usersDbName || 'testdb';
     try {
       mongod = await MongoMemoryServer.create({ instance: { dbName } });
       if (!mongod) {
@@ -54,7 +56,7 @@ export async function setupTestEnvironment<TServerConfig = any>(
 
   // Start the server with MongoDB URI
   // MongoDB URI を渡してサーバーを起動
-  const server: http.Server = await startServer({ ...options.serverConfig, mongoUri });
+  const server: http.Server = await startServer({ ...options.serverConfig, mongoUri } as ServerConfig);
 
   // Get server URL from actual listening port
   // 実際のリスニングポートから serverUrl を取得
@@ -161,18 +163,16 @@ export async function cleanupTestUser(authId: string): Promise<void> {
  * Clean up test environment
  * Stop the server and MongoMemoryServer
  * @param testEnv - The SetupTestEnvironmentResult returned from setupTestEnvironment
- * @param stopServerFn - Function to stop the server (e.g., stopServer from revlm-server)
  */
 export async function cleanupTestEnvironment(
-  testEnv: SetupTestEnvironmentResult,
-  stopServerFn: () => Promise<void>
+  testEnv: SetupTestEnvironmentResult
 ): Promise<void> {
   console.log('Cleaning up test environment...');
 
   // Stop the server
   // サーバーを停止
   try {
-    await stopServerFn();
+    await stopServer();
     console.log('Server stopped');
   } catch (error) {
     console.error('Failed to stop server:', error);

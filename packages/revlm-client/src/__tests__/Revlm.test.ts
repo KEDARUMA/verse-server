@@ -1,27 +1,54 @@
-// Use .env for configuration
-require('dotenv').config();
+/*
+Test overview: An integration test covering the flow from provisionalLogin through register → login → delete.
+Start revlm-server and validate by calling real HTTP endpoints from the client.
+Confirm verifyToken succeeds, refreshToken fails for a provisional token, and the provisional token expires as expected.
+Settings are loaded from tests/test.env.
+テスト概要: provisionalLogin を起点に、登録→ログイン→削除までの一連を統合テスト。
+revlm-server を立ち上げ、client で実エンドポイントを叩いて検証。
+verifyToken で有効を確認、仮アカウントのトークン refreshToken が失敗する事を確認、仮アカウントのトークン期限切れ確認。
+設定は __tests__/test.env を使用。
+*/
 
-import { startServer, stopServer } from '@kedaruma/revlm-server/server';
+import dotenv from 'dotenv';
+import path from 'path';
+import {
+  setupTestEnvironment,
+  cleanupTestEnvironment,
+  SetupTestEnvironmentResult
+} from '@kedaruma/revlm-server/__tests__/setupTestMongo';
 import Revlm from '../Revlm';
-import { MongoMemoryServer } from 'mongodb-memory-server';
 
-let mongod: MongoMemoryServer | undefined;
+dotenv.config({ path: path.join(__dirname, 'test.env') });
+
+let testEnv: SetupTestEnvironmentResult;
 
 jest.setTimeout(20000);
 
+// provisionalLogin の結合テスト
 describe('Revlm.provisionalLogin (integration)', () => {
   // Shared client and provisional token for tests
   let v: Revlm;
   let provisionalToken: string | undefined;
 
   beforeAll(async () => {
-    // Start in-memory MongoDB and set MONGO_URI before starting the server
-    mongod = await MongoMemoryServer.create();
-    process.env.MONGO_URI = mongod.getUri();
+    // テスト環境をセットアップ (MongoDB + サーバー)
+    // Setup test environment (MongoDB + Server)
+    testEnv = await setupTestEnvironment({
+      serverConfig: {
+        mongoUri: process.env.MONGO_URI as string,
+        usersDbName: process.env.USERS_DB_NAME as string,
+        usersCollectionName: process.env.USERS_COLLECTION_NAME as string,
+        jwtSecret: process.env.JWT_SECRET as string,
+        provisionalLoginEnabled: true,
+        provisionalAuthId: process.env.PROVISIONAL_AUTH_ID as string,
+        provisionalAuthSecretMaster: process.env.PROVISIONAL_AUTH_SECRET_MASTER as string,
+        provisionalAuthDomain: process.env.PROVISIONAL_AUTH_DOMAIN as string,
+        port: Number(process.env.PORT),
+      }
+    });
 
-    await startServer();
     // create client and perform provisional login once for reuse
-    v = new Revlm(`http://localhost:${process.env.PORT || 3000}`,
+    v = new Revlm(testEnv.serverUrl,
       {
         provisionalEnabled: true,
         provisionalAuthSecretMaster: process.env.PROVISIONAL_AUTH_SECRET_MASTER as string,
@@ -34,29 +61,17 @@ describe('Revlm.provisionalLogin (integration)', () => {
   });
 
   afterAll(async () => {
-    try {
-      await stopServer();
-    } catch (e) {
-      // ignore
-    }
-
-    if (mongod) {
-      try {
-        await mongod.stop();
-        mongod = undefined;
-      } catch (e) {
-        console.warn('Failed to stop mongodb-memory-server in Revlm.test afterAll:', e);
-      }
-    }
+    await cleanupTestEnvironment(testEnv);
   });
 
+  // provisionalLogin の結合テストが成功するか確認する
   it('round-trips provisionalLogin successfully using .env settings', async () => {
     // provisional login was already performed in beforeAll
+    // provisional login はすでに beforeAll で実行済み
     expect(provisionalToken).toBeDefined();
-    // optional: verify token yields user via server verify-token endpoint by using client's request
-    // but simplest check is that token exists
   });
 
+  // 仮アカウントはユーザー登録ができ、そのユーザーはログインでき、削除もできる。
   it('provisional account can register a user, that user can login, and can be deleted', async () => {
     // reuse v and provisionalToken from beforeAll
     expect(provisionalToken).toBeDefined();
@@ -78,14 +93,18 @@ describe('Revlm.provisionalLogin (integration)', () => {
     expect((verifyRes as any).payload.userType).toBe('provisional');
 
     // refreshToken should fail for provisional token (cannot refresh provisional tokens)
+    // refreshToken は仮トークンでは失敗するはず（仮トークンは更新できない）
     const refreshRes = await v.refreshToken();
     expect(refreshRes.ok).toBe(false);
     // refresh failure is sufficient to prove provisional tokens cannot be refreshed
+    // リフレッシュ失敗は、仮トークンが更新できないことを証明するのに十分
 
     // wait 6 seconds so provisional token expires (server provisional tokens expire in 5s)
+    // 6秒待って、仮トークンの有効期限切れを待つ（サーバー側の仮トークン有効期限は5秒）
     await new Promise((r) => setTimeout(r, 6000));
 
     // verifyToken should now indicate token expired
+    // verifyToken は、トークンの有効期限切れを示すべき
     const verifyAfterRes = await v.verifyToken();
     expect(verifyAfterRes.ok).toBe(false);
     expect(((verifyAfterRes as any).reason === 'token_expired') || verifyAfterRes.status === 401).toBeTruthy();
