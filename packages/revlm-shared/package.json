@@ -45,7 +45,8 @@
   "license": "ISC",
   "publishConfig": { "access": "public" },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
     "bson": "^6.10.4"

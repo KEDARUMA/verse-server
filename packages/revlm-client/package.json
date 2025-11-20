@@ -26,7 +26,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts"
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
     "@kedaruma/revlm-shared": "workspace:*",

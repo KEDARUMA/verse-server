@@ -9,7 +9,9 @@
   "publishConfig": { "access": "public" },
   "scripts": {
     "start": "node dist/start.js",
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist node_modules",
+    "test": ""
   },
   "dependencies": {
     "bson": "^6.10.4",
