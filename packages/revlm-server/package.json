@@ -11,7 +11,7 @@
     "start": "node dist/start.js",
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist node_modules",
-    "test": ""
+    "test": "pnpm exec jest --config ../../jest.config.cjs packages/revlm-server/src/__tests__/ --runInBand --watchman=false --verbose"
   },
   "dependencies": {
     "bson": "^6.10.4",

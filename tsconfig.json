@@ -51,8 +51,10 @@
     // Base URL and Paths for Workspace Packages
     "baseUrl": ".",
     "paths": {
+      "@kedaruma/revlm-client": ["packages/revlm-client/src/index.ts"],
       "@kedaruma/revlm-client/*": ["packages/revlm-client/src/*"],
       "@kedaruma/revlm-server/*": ["packages/revlm-server/src/*"],
+      "@kedaruma/revlm-shared": ["packages/revlm-shared/src/index.ts"],
       "@kedaruma/revlm-shared/*": ["packages/revlm-shared/src/*"]
     }
   },
