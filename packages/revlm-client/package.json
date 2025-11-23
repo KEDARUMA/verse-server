@@ -28,7 +28,7 @@
   },
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts",
-    "clean": "rm -rf dist node_modules",
+    "clean": "rm -rf dist node_modules kedaruma-revlm-client-*.tgz",
     "test": "pnpm exec jest --config ../../jest.config.cjs packages/revlm-client/src/__tests__/ --runInBand --watchman=false --verbose"
   },
   "dependencies": {

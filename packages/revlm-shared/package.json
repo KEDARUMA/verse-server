@@ -47,7 +47,7 @@
   "publishConfig": { "access": "public" },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "clean": "rm -rf dist node_modules"
+    "clean": "rm -rf dist node_modules kedaruma-revlm-shared-*.tgz"
   },
   "dependencies": {
     "bson": "^6.10.4"

@@ -11,7 +11,7 @@
   "scripts": {
     "start": "node dist/start.js",
     "build": "tsc -p tsconfig.json",
-    "clean": "rm -rf dist node_modules",
+    "clean": "rm -rf dist node_modules kedaruma-revlm-server-*.tgz",
     "test": "pnpm exec jest --config ../../jest.config.cjs packages/revlm-server/src/__tests__/ --runInBand --watchman=false --verbose"
   },
   "dependencies": {

@@ -7,6 +7,8 @@ node_modules/
 
 # Build output
 dist/
+packages/*/*.tgz
+*.tgz
 
 # Logs
 logs/
@@ -30,7 +32,6 @@ coverage/
 jest-cache/
 
 # Misc
-/*.tgz
 # local overrides
 .local
 
