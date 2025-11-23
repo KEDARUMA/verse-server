@@ -8,7 +8,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "clean": "pnpm -r run clean && rm -rf dist node_modules",
-    "test": "pnpm -r --workspace-concurrency=1 test"
+    "test": "pnpm -r --workspace-concurrency=1 test",
+    "pack:all": "pnpm -r exec pnpm pack"
   },
   "keywords": [],
   "author": "",
