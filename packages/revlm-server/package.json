@@ -2,6 +2,7 @@
   "name": "@kedaruma/revlm-server",
   "version": "1.0.2",
   "private": true,
+  "description": "Self-hosted replacement for MongoDB Realm App Services that brokers auth and MongoDB calls.",
   "main": "dist/server.js",
   "types": "dist/server.d.ts",
   "files": ["dist/"],
@@ -20,7 +21,7 @@
     "mongodb": "^6.20.0",
     "jsonwebtoken": "^9.0.2",
     "bcrypt": "^6.0.0",
-    "@kedaruma/revlm-shared": "^1.0.0"
+    "@kedaruma/revlm-shared": "workspace:*"
   },
   "devDependencies": {
     "mongodb-memory-server": "^8.12.2"
