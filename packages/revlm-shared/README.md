@@ -1,5 +1,7 @@
 # @kedaruma/revlm-shared
 
+English documentation | [日本語ドキュメントはこちら](README-ja.md)
+
 Shared TypeScript declarations, BSON helpers, and auth utilities consumed by both the Revlm server and client packages.
 
 ## Contents
