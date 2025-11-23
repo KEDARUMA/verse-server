@@ -17,8 +17,12 @@ CJS/ESM 両対応のバンドルと型定義が同梱されています。
 ```ts
 import { Revlm } from '@kedaruma/revlm-client';
 
-const client = new Revlm({ baseUrl: 'https://your-server.example.com' });
-const login = await client.login({ authId: 'user', password: 'secret' });
+const revlm = new Revlm({ baseUrl: 'https://your-server.example.com' });
+const login = await revlm.login({ authId: 'user', password: 'secret' });
+const db = revlm.db('db_name');
+const coll = db.collection<any>('collection_name');
+const all = await coll.find({});
+
 ```
 
 ## スクリプト
