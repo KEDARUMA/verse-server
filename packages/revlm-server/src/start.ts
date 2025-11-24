@@ -1,4 +1,5 @@
 import { config as dotenvConfig } from 'dotenv';
+dotenvConfig();
 import { startServer, stopServer, ServerConfig } from './server';
 
 function toBool(v: string | undefined): boolean | undefined {
