@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "@kedaruma/revlm-shared": ["../revlm-shared/dist/index.d.ts"],
+      "@kedaruma/revlm-shared/*": ["../revlm-shared/dist/*"]
+    }
+  },
+  "references": [
+    { "path": "../revlm-shared" }
+  ],
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "src/__tests__", "**/*.test.ts"]
+}

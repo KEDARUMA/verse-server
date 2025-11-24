@@ -1,6 +1,6 @@
 {
   "name": "@kedaruma/revlm-shared",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": false,
   "description": "Shared TypeScript types, auth helpers, and utilities for the Revlm client/server packages.",
   "type": "module",
@@ -35,16 +35,30 @@
   },
   "typesVersions": {
     "*": {
-      "models/*": ["dist/models/*.d.ts"],
-      "models/user-types": ["dist/models/user-types.d.ts"],
-      "auth-token": ["dist/auth-token.d.ts"],
-      "utils/asserts": ["dist/utils/asserts.d.ts"],
-      "*": ["dist/index.d.ts"]
+      "models/*": [
+        "dist/models/*.d.ts"
+      ],
+      "models/user-types": [
+        "dist/models/user-types.d.ts"
+      ],
+      "auth-token": [
+        "dist/auth-token.d.ts"
+      ],
+      "utils/asserts": [
+        "dist/utils/asserts.d.ts"
+      ],
+      "*": [
+        "dist/index.d.ts"
+      ]
     }
   },
-  "files": ["dist/"],
+  "files": [
+    "dist/"
+  ],
   "license": "ISC",
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist node_modules kedaruma-revlm-shared-*.tgz"

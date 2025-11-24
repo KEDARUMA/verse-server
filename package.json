@@ -1,6 +1,6 @@
 {
   "name": "revlm",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -9,7 +9,10 @@
     "start": "node dist/server.js",
     "clean": "pnpm -r run clean && rm -rf dist node_modules",
     "test": "pnpm -r --workspace-concurrency=1 test",
-    "pack:all": "pnpm -r exec pnpm pack"
+    "pack:all": "pnpm -r exec pnpm pack",
+    "build:packages": "pnpm --filter @kedaruma/revlm-shared run build && pnpm --filter @kedaruma/revlm-server run build && pnpm --filter @kedaruma/revlm-client run build",
+    "publish:all": "pnpm publish --filter @kedaruma/revlm-shared --access public && pnpm publish --filter @kedaruma/revlm-server --access public && pnpm publish --filter @kedaruma/revlm-client --access public",
+    "bump:patch": "node scripts/bump-patch-versions.js"
   },
   "keywords": [],
   "author": "",
