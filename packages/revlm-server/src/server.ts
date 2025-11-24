@@ -266,7 +266,7 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
   }
 
   if (isServerListening(server)) return server;
-  const port = Number.isFinite(merged.port) ? 0: merged.port;
+  const port = Number.isFinite(merged.port) ? merged.port : 0;
   const c = new MongoClient(MONGO_URI as string);
   client = c;
   try {
