@@ -197,7 +197,3 @@ export async function demo() {
   const res = await server.validatePassword(password);
   console.log("verify:", res);
 }
-
-if (typeof process !== "undefined" && (require as any).main === module) {
-  demo().catch((e) => { console.error(e); process.exit(1); });
-}
