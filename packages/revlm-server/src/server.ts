@@ -3,6 +3,7 @@ import { User } from '@kedaruma/revlm-shared/models/user-types';
 import { AuthServer } from '@kedaruma/revlm-shared/auth-token';
 import type { MongoClient as MongoClientType } from 'mongodb';
 const express = require('express');
+const cors = require('cors');
 import { MongoClient } from 'mongodb';
 import { ObjectId, EJSON } from 'bson';
 const jwt = require('jsonwebtoken');
@@ -12,6 +13,7 @@ import http from "http";
 import { ensureDefined } from '@kedaruma/revlm-shared/utils/asserts';
 
 const app = express();
+app.use(cors());
 app.use(express.text({ type: 'application/ejson' }));
 app.use(express.json());
 
