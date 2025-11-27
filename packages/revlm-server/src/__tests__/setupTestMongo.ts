@@ -107,6 +107,13 @@ export async function createTestUser(options: CreateTestUserOptions): Promise<vo
   } = options;
 
   try {
+    // make it idempotent across runs
+    try {
+      await cleanupTestUser(user.authId);
+    } catch (_e) {
+      /* ignore if user does not exist */
+    }
+
     // Generate a password for provisional login
     // provisional login のパスワードを生成
     const provisionalClient = new AuthClient({

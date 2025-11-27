@@ -9,7 +9,7 @@ import {
   Document
 } from "./Revlm.types";
 
-export default class RevlmCollection<T extends Document = Document> {
+export default class MdbCollection<T extends Document = Document> {
   private _revlm: Revlm;
   private _dbName: string;
   private _collection: string;

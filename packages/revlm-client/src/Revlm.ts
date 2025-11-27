@@ -1,6 +1,9 @@
 import { EJSON } from 'bson';
 import { AuthClient } from '@kedaruma/revlm-shared';
 import RevlmDBDatabase from "./RevlmDBDatabase";
+import { LoginResponse, ProvisionalLoginResponse } from './Revlm.types';
+
+type EmailPasswordCredential = { type: 'emailPassword'; email: string; password: string };
 
 export type RevlmOptions = {
   fetchImpl?: typeof fetch;
@@ -138,16 +141,16 @@ export default class Revlm {
     }
   }
 
-  async login(authId: string, password: string) {
+  async login(authId: string, password: string): Promise<LoginResponse> {
     if (!authId || !password) throw new Error('authId and password are required');
     const res = await this.request('/login', 'POST', { authId, password });
     if (this.autoSetToken && res && res.ok && res.token) {
       this.setToken(res.token as string);
     }
-    return res;
+    return res as LoginResponse;
   }
 
-  async provisionalLogin(authId: string) {
+  async provisionalLogin(authId: string): Promise<ProvisionalLoginResponse> {
     if (!this.provisionalEnabled) {
       throw new Error('provisional login is disabled by client configuration');
     }
@@ -158,7 +161,7 @@ export default class Revlm {
     if (this.autoSetToken && res && res.ok && res.token) {
       this.setToken(res.token as string);
     }
-    return res;
+    return res as ProvisionalLoginResponse;
   }
 
   async registerUser(user: any, password: string) {
@@ -183,3 +186,111 @@ export default class Revlm {
 }
 
 export { Revlm };
+
+// Realm.Web emulation layer (minimal surface without listeners)
+class MongoDBService {
+  private _revlm: Revlm;
+  constructor(revlm: Revlm) {
+    this._revlm = revlm;
+  }
+  db(dbName: string) {
+    return new RevlmDBDatabase(dbName, this._revlm);
+  }
+}
+
+class Credentials {
+  static emailPassword(email: string, password: string): EmailPasswordCredential {
+    if (!email || !password) throw new Error('email and password are required');
+    return { type: 'emailPassword', email, password };
+  }
+}
+
+class User {
+  private _app: App;
+  private _token: string;
+  private _profile: any;
+  constructor(app: App, token: string, profile: any) {
+    this._app = app;
+    this._token = token;
+    this._profile = profile || {};
+  }
+  get id(): string {
+    return String(this._profile && this._profile._id ? this._profile._id : '');
+  }
+  get accessToken(): string {
+    return this._token;
+  }
+  get profile(): any {
+    return this._profile;
+  }
+  mongoClient(_serviceName = 'mongodb-atlas'): MongoDBService {
+    return new MongoDBService(this._app.__revlm);
+  }
+  async logOut() {
+    await this._app.logOut();
+  }
+}
+
+class App {
+  id: string | null;
+  private _currentUser: User | null = null;
+  private _users: Record<string, User> = {};
+  // Expose for internal use by emulated classes
+  __revlm: Revlm;
+
+  constructor(opts: { id?: string; baseUrl: string; fetchImpl?: typeof fetch; defaultHeaders?: Record<string, string> }) {
+    this.id = opts.id ?? null;
+    const revlmOpts: RevlmOptions = {};
+    if (opts.fetchImpl !== undefined) revlmOpts.fetchImpl = opts.fetchImpl;
+    if (opts.defaultHeaders !== undefined) revlmOpts.defaultHeaders = opts.defaultHeaders;
+    this.__revlm = new Revlm(opts.baseUrl, revlmOpts);
+  }
+
+  get currentUser(): User | null {
+    return this._currentUser;
+  }
+
+  get allUsers(): Record<string, User> {
+    return { ...this._users };
+  }
+
+  async logIn(cred: EmailPasswordCredential): Promise<User> {
+    if (!cred || cred.type !== 'emailPassword') {
+      throw new Error('Unsupported credentials type');
+    }
+    const res = await this.__revlm.login(cred.email, cred.password);
+    if (!res || !res.ok || !res.token) {
+      const errMsg = res && !res.ok ? res.error : 'login failed';
+      throw new Error(errMsg);
+    }
+    this.__revlm.setToken(res.token as string);
+    const user = new User(this, res.token as string, res.user);
+    const userId = user.id || 'current';
+    this._users[userId] = user;
+    this._currentUser = user;
+    return user;
+  }
+
+  switchUser(user: User): User {
+    if (!user) throw new Error('user is required');
+    this._currentUser = user;
+    this.__revlm.setToken(user.accessToken);
+    return user;
+  }
+
+  async removeUser(user: User): Promise<void> {
+    if (!user) return;
+    const id = user.id || 'current';
+    delete this._users[id];
+    if (this._currentUser === user) {
+      await this.logOut();
+    }
+  }
+
+  async logOut(): Promise<void> {
+    this.__revlm.logout();
+    this._currentUser = null;
+  }
+}
+
+export { App, Credentials, MongoDBService, User };

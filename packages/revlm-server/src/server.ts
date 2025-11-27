@@ -10,7 +10,6 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 import type { ObjectId as ObjectIdType } from 'bson';
 import http from "http";
-import { ensureDefined } from '@kedaruma/revlm-shared/utils/asserts';
 
 const app = express();
 app.use(cors());

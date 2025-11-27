@@ -1,5 +1,5 @@
 import Revlm from "./Revlm";
-import RevlmCollection from "./RevlmCollection";
+import MdbCollection from "./MdbCollection";
 import { Document } from "./Revlm.types";
 
 export default class RevlmDBDatabase {
@@ -11,7 +11,7 @@ export default class RevlmDBDatabase {
     this._revlm = revlm;
   }
 
-  collection<T extends Document = Document>(collection: string): RevlmCollection<T> {
-    return new RevlmCollection<T>(collection, this._dbName, this._revlm);
+  collection<T extends Document = Document>(collection: string): MdbCollection<T> {
+    return new MdbCollection<T>(collection, this._dbName, this._revlm);
   }
 }

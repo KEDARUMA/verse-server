@@ -1,4 +1,15 @@
 import {Long, Timestamp} from "bson";
+import type {User} from "@kedaruma/revlm-shared/models/user-types";
+
+export type RevlmErrorResponse = { ok: false; error: string };
+export type LoginSuccess = { ok: true; token: string; user: User };
+export type LoginResponse = LoginSuccess | RevlmErrorResponse;
+export type ProvisionalLoginSuccess = { ok: true; token: string; user: Record<string, never> };
+export type ProvisionalLoginResponse = ProvisionalLoginSuccess | RevlmErrorResponse;
+export type RegisterUserSuccess = { ok: true; user: User };
+export type RegisterUserResponse = RegisterUserSuccess | RevlmErrorResponse;
+export type DeleteUserSuccess = { ok: true; deletedCount: number };
+export type DeleteUserResponse = DeleteUserSuccess | RevlmErrorResponse;
 
 export type FindOneOptions = {
   readonly projection?: Record<string, unknown>;

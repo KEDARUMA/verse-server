@@ -107,7 +107,9 @@ describe('RevlmCollection (integration)', () => {
     // 作成したユーザーでログイン
     const loginRes = await v.login(newAuthId, newPassword);
     expect(loginRes.ok).toBe(true);
-    expect(loginRes.token).toBeDefined();
+    if (loginRes.ok) {
+      expect(loginRes.token).toBeDefined();
+    }
 
     // Use a test-specific DB to avoid colliding with other data
     // 他のデータと衝突しないようテスト専用 DB を使用

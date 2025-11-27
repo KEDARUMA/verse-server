@@ -111,7 +111,9 @@ describe('Revlm.provisionalLogin (integration)', () => {
 
     const loginRes = await v.login(newAuthId, newPassword);
     expect(loginRes.ok).toBe(true);
-    expect(loginRes.token).toBeDefined();
+    if (loginRes.ok) {
+      expect(loginRes.token).toBeDefined();
+    }
 
     const delRes = await v.deleteUser({ authId: newAuthId });
     expect(delRes.ok).toBe(true);
