@@ -80,7 +80,7 @@ describe('Revlm.provisionalLogin (integration)', () => {
   });
 
   it('emulates Realm.App login/currentUser/allUsers and MongoDB service', async () => {
-    const app = new App({ baseUrl: testEnv.serverUrl });
+    const app = new App(testEnv.serverUrl);
     const creds = Credentials.emailPassword(TEST_USER_ID, TEST_USER_PASSWORD);
     const user = await app.logIn(creds);
 

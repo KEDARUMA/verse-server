@@ -232,18 +232,13 @@ class User {
 }
 
 class App {
-  id: string | null;
   private _currentUser: User | null = null;
   private _users: Record<string, User> = {};
   // Expose for internal use by emulated classes
   __revlm: Revlm;
 
-  constructor(opts: { id?: string; baseUrl: string; fetchImpl?: typeof fetch; defaultHeaders?: Record<string, string> }) {
-    this.id = opts.id ?? null;
-    const revlmOpts: RevlmOptions = {};
-    if (opts.fetchImpl !== undefined) revlmOpts.fetchImpl = opts.fetchImpl;
-    if (opts.defaultHeaders !== undefined) revlmOpts.defaultHeaders = opts.defaultHeaders;
-    this.__revlm = new Revlm(opts.baseUrl, revlmOpts);
+  constructor(baseUrl: string, opts: RevlmOptions & { id?: string } = {}) {
+    this.__revlm = new Revlm(baseUrl, opts);
   }
 
   get currentUser(): User | null {
