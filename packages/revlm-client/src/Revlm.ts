@@ -135,6 +135,10 @@ export default class Revlm {
       const parsed = await this.parseResponse(res);
       const out: RevlmResponse = (parsed && typeof parsed === 'object') ? parsed : { ok: res.ok, result: parsed };
       out.status = res.status;
+      if (out && out.ok === false && !out.error) {
+        // normalize error field for compatibility
+        out.error = (parsed as any)?.reason || (parsed as any)?.message || 'Unknown error';
+      }
       return out;
     } catch (err: any) {
       return { ok: false, error: err?.message || String(err) };
@@ -209,10 +213,18 @@ class User {
   private _app: App;
   private _token: string;
   private _profile: any;
+  functions: {
+    callFunction: (_name: string, _args?: any[]) => Promise<any>;
+  };
   constructor(app: App, token: string, profile: any) {
     this._app = app;
     this._token = token;
     this._profile = profile || {};
+    this.functions = {
+      callFunction: async (_name: string, _args?: any[]) => {
+        throw new Error('user.functions.callFunction is not implemented in Revlm client');
+      },
+    };
   }
   get id(): string {
     return String(this._profile && this._profile._id ? this._profile._id : '');
@@ -236,9 +248,21 @@ class App {
   private _users: Record<string, User> = {};
   // Expose for internal use by emulated classes
   __revlm: Revlm;
+  emailPasswordAuth: {
+    registerUser: (email: string, password: string) => Promise<RevlmResponse>;
+    deleteUser: (email: string) => Promise<RevlmResponse>;
+  };
 
   constructor(baseUrl: string, opts: RevlmOptions & { id?: string } = {}) {
     this.__revlm = new Revlm(baseUrl, opts);
+    this.emailPasswordAuth = {
+      registerUser: async (email: string, password: string) => {
+        return this.__revlm.registerUser({ authId: email, userType: 'user', roles: [] }, password);
+      },
+      deleteUser: async (email: string) => {
+        return this.__revlm.deleteUser({ authId: email });
+      },
+    };
   }
 
   get currentUser(): User | null {
@@ -285,6 +309,14 @@ class App {
   async logOut(): Promise<void> {
     this.__revlm.logout();
     this._currentUser = null;
+  }
+
+  // Realm compatibility: allow deleteUser(user) pattern
+  async deleteUser(user: User): Promise<void> {
+    if (!user) return;
+    const authId = (user.profile && (user.profile as any).authId) || user.id;
+    await this.__revlm.deleteUser({ authId });
+    await this.removeUser(user);
   }
 }
 

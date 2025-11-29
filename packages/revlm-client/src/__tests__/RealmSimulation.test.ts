@@ -93,6 +93,16 @@ describe('Revlm.provisionalLogin (integration)', () => {
     expect(found).toBeTruthy();
     expect((found as any).authId).toBe(TEST_USER_ID);
 
+    // emailPasswordAuth.registerUser/deleteUser wrappers should work
+    const tempUser = `temp-${Date.now()}`;
+    const regRes = await app.emailPasswordAuth.registerUser(tempUser, 'pw');
+    expect(regRes.ok).toBe(true);
+    const delRes = await app.emailPasswordAuth.deleteUser(tempUser);
+    expect(delRes.ok).toBe(true);
+
+    // user.functions stub should throw not implemented
+    await expect(user.functions.callFunction('dummy')).rejects.toThrow();
+
     // removeUser should clear currentUser and registry
     await app.removeUser(user);
     expect(app.currentUser).toBeNull();
