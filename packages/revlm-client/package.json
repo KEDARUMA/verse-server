@@ -1,6 +1,6 @@
 {
   "name": "@kedaruma/revlm-client",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "private": false,
   "description": "TypeScript client SDK for talking to the Revlm server replacement for MongoDB Realm.",
   "keywords": [

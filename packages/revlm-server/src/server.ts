@@ -333,8 +333,8 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
       if (!user || !user.passwordHash) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
       const valid = await bcrypt.compare(password, user.passwordHash);
       if (!valid) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
-      const { _id, userType, roles, merchantId } = user;
-      const token = jwt.sign({ _id, userType, roles, merchantId }, JWT_SECRET as string, { expiresIn: JWT_EXPIRES_IN as string });
+      const { _id, userType, roles } = user;
+      const token = jwt.sign({ _id, userType, roles }, JWT_SECRET as string, { expiresIn: JWT_EXPIRES_IN as string });
       try {
         const decoded = jwt.decode(token);
         console.log('TOKEN PAYLOAD (login):', decoded);

@@ -1,9 +1,11 @@
 import { EJSON } from 'bson';
 import { AuthClient } from '@kedaruma/revlm-shared';
+import type { User as UserDoc } from '@kedaruma/revlm-shared/models/user-types';
 import RevlmDBDatabase from "./RevlmDBDatabase";
 import { LoginResponse, ProvisionalLoginResponse } from './Revlm.types';
 
 type EmailPasswordCredential = { type: 'emailPassword'; email: string; password: string };
+type UserInput = Omit<UserDoc, 'userType'> & { userType: UserDoc['userType'] | string };
 
 export type RevlmOptions = {
   fetchImpl?: typeof fetch;
@@ -168,7 +170,7 @@ export default class Revlm {
     return res as ProvisionalLoginResponse;
   }
 
-  async registerUser(user: any, password: string) {
+  async registerUser(user: UserInput, password: string) {
     if (!user) throw new Error('user is required');
     if (!password) throw new Error('password is required');
     return this.request('/registerUser', 'POST', { user, password });
@@ -257,7 +259,7 @@ class App {
     this.__revlm = new Revlm(baseUrl, opts);
     this.emailPasswordAuth = {
       registerUser: async (email: string, password: string) => {
-        return this.__revlm.registerUser({ authId: email, userType: 'user', roles: [] }, password);
+        return this.__revlm.registerUser({ authId: email, userType: 'user', roles: ['user'] }, password);
       },
       deleteUser: async (email: string) => {
         return this.__revlm.deleteUser({ authId: email });

@@ -39,7 +39,6 @@ const testUser: User = {
   authId: testAuthId,
   userType: 'staff',
   roles: ['test'],
-  merchantId: new ObjectId(),
 };
 
 let testEnv: SetupTestEnvironmentResult;
@@ -132,7 +131,6 @@ describe('Auth API Integration', () => {
       authId: 'api_test_user',
       userType: 'staff',
       roles: ['test'],
-      merchantId: new ObjectId(),
     };
 
     // Call /registerUser and verify that the user is created as expected

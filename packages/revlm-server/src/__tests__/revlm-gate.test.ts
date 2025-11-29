@@ -43,7 +43,6 @@ const testUser: User = {
   authId: testAuthId,
   userType: 'staff',
   roles: ['gate'],
-  merchantId: new ObjectId(),
 };
 const testCollection = `gate_test_${Date.now()}`;
 
