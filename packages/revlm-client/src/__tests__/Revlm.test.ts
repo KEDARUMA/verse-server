@@ -52,7 +52,8 @@ describe('Revlm.provisionalLogin (integration)', () => {
       {
         provisionalEnabled: true,
         provisionalAuthSecretMaster: process.env.PROVISIONAL_AUTH_SECRET_MASTER as string,
-        provisionalAuthDomain: process.env.PROVISIONAL_AUTH_DOMAIN as string
+        provisionalAuthDomain: process.env.PROVISIONAL_AUTH_DOMAIN as string,
+        autoRefreshOn401: process.env.AUTO_REFRESH_ON_401 === 'true'
       }
     );
     const res = await v.provisionalLogin(process.env.PROVISIONAL_AUTH_ID as string);

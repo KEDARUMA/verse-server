@@ -8,6 +8,7 @@ import {
   Update, UpdateOptions, UpdateResult, WatchOptionsFilter, WatchOptionsIds,
   Document
 } from "./Revlm.types";
+import { DefaultId } from '@kedaruma/revlm-shared/models/mongo-doc-base-types';
 
 export default class MdbCollection<T extends Document = Document> {
   private _revlm: Revlm;

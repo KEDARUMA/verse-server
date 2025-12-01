@@ -16,6 +16,8 @@ export type RevlmOptions = {
   provisionalAuthDomain?: string;
   // automatically set token returned from login/provisionalLogin into the client
   autoSetToken?: boolean;
+  // automatically refresh on 401 once and retry the original request
+  autoRefreshOn401?: boolean;
 };
 
 export type RevlmResponse<T = any> = {
@@ -36,6 +38,7 @@ export default class Revlm {
   private provisionalAuthSecretMaster: string;
   private provisionalAuthDomain: string;
   private autoSetToken: boolean;
+  private autoRefreshOn401: boolean;
 
   constructor(baseUrl: string, opts: RevlmOptions = {}) {
     if (!baseUrl) throw new Error('baseUrl is required');
@@ -46,6 +49,7 @@ export default class Revlm {
     this.provisionalAuthSecretMaster = opts.provisionalAuthSecretMaster || '';
     this.provisionalAuthDomain = opts.provisionalAuthDomain || '';
     this.autoSetToken = opts.autoSetToken ?? true;
+    this.autoRefreshOn401 = opts.autoRefreshOn401 || false;
 
     if (!this.fetchImpl) {
       throw new Error('No fetch implementation available. Provide fetchImpl in options or run in Node 18+ with global fetch.');
@@ -71,7 +75,7 @@ export default class Revlm {
   // On success, if autoSetToken is true and res.token is set, update the client token.
   async refreshToken(): Promise<RevlmResponse> {
     if (!this._token) return { ok: false, error: 'No token set' };
-    const res = await this.request('/refresh-token', 'POST');
+    const res = await this.requestWithRetry('/refresh-token', 'POST', undefined, { allowAuthRetry: false, retrying: false });
     if (this.autoSetToken && res && res.ok && res.token) {
       this.setToken(res.token as string);
     }
@@ -121,6 +125,21 @@ export default class Revlm {
   }
 
   private async request(path: string, method = 'POST', body?: any): Promise<RevlmResponse> {
+    return this.requestWithRetry(path, method, body, { allowAuthRetry: this.autoRefreshOn401, retrying: false });
+  }
+
+  private shouldSkipAuthRetry(path: string): boolean {
+    const pathname = path.startsWith('http') ? new URL(path).pathname : path;
+    return pathname.includes('/login') || pathname.includes('/provisional-login') || pathname.includes('/refresh-token') || pathname.includes('/verify-token');
+  }
+
+  private async requestWithRetry(
+    path: string,
+    method = 'POST',
+    body?: any,
+    opts: { allowAuthRetry: boolean; retrying: boolean } = { allowAuthRetry: false, retrying: false }
+  ): Promise<RevlmResponse> {
+    const { allowAuthRetry, retrying } = opts;
     const url = path.startsWith('http') ? path : `${this.baseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
     const hasBody = body !== undefined;
     const headers = this.makeHeaders(hasBody);
@@ -140,6 +159,12 @@ export default class Revlm {
       if (out && out.ok === false && !out.error) {
         // normalize error field for compatibility
         out.error = (parsed as any)?.reason || (parsed as any)?.message || 'Unknown error';
+      }
+      if (allowAuthRetry && !retrying && res.status === 401 && !this.shouldSkipAuthRetry(path)) {
+        const refreshRes = await this.refreshToken();
+        if (refreshRes && refreshRes.ok && refreshRes.token) {
+          return this.requestWithRetry(path, method, body, { allowAuthRetry: false, retrying: true });
+        }
       }
       return out;
     } catch (err: any) {
