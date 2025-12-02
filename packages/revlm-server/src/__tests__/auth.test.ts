@@ -14,7 +14,7 @@ import dotenv from 'dotenv';
 import { User } from '@kedaruma/revlm-shared/models/user-types';
 import { AuthClient } from '@kedaruma/revlm-shared/auth-token';
 import { ensureDefined } from '@kedaruma/revlm-shared/utils/asserts';
-import { SetupTestEnvironmentResult, setupTestEnvironment, createTestUser, cleanupTestUser, cleanupTestEnvironment } from '@kedaruma/revlm-server/__tests__/setupTestMongo';
+import { SetupTestEnvironmentResult, setupTestEnvironment, createTestUser, cleanupTestUser, cleanupTestEnvironment, buildSigV4Headers } from '@kedaruma/revlm-server/__tests__/setupTestMongo';
 import path from 'path';
 
 // Load environment variables (refer to .env) so that the necessary settings for the test are stored in process.env.
@@ -67,6 +67,10 @@ beforeAll(async () => {
       provisionalAuthId: PROVISIONAL_AUTH_ID,
       provisionalAuthSecretMaster: PROVISIONAL_AUTH_SECRET_MASTER,
       provisionalAuthDomain: PROVISIONAL_AUTH_DOMAIN,
+      sigv4SecretKey: process.env.REVLM_SIGV4_SECRET_KEY,
+      sigv4AccessKey: process.env.REVLM_SIGV4_ACCESS_KEY,
+      sigv4Region: process.env.REVLM_SIGV4_REGION,
+      sigv4Service: process.env.REVLM_SIGV4_SERVICE,
       port: Number(process.env.PORT),
     }
   });
@@ -120,9 +124,12 @@ describe('Auth API Integration', () => {
   it('registerUser API: should register a new user with valid token', async () => {
     // Log in with the test user and obtain a JWT
     // テストユーザでログインし JWT を取得
+    const loginBody = { authId: testAuthId as string, password: testPassword };
+    const loginHeaders = await buildSigV4Headers(serverUrl, '/login', 'POST', loginBody);
     const loginRes = await request(serverUrl)
       .post('/login')
-      .send({ authId: testAuthId as string, password: testPassword });
+      .set(loginHeaders)
+      .send(loginBody);
     const token = loginRes.body.token;
 
     // Payload for the user to be registered
@@ -135,10 +142,13 @@ describe('Auth API Integration', () => {
 
     // Call /registerUser and verify that the user is created as expected
     // /registerUser を呼び、期待通りユーザが作成されることを確認
+    const regBody = { user: newUser, password: 'api_test_pass' };
+    const regHeaders = await buildSigV4Headers(serverUrl, '/registerUser', 'POST', regBody);
     const res = await request(serverUrl)
       .post('/registerUser')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ user: newUser, password: 'api_test_pass' });
+      .set(regHeaders)
+      .set('X-Revlm-JWT', `Bearer ${token}`)
+      .send(regBody);
 
     // 期待値: ok: true, user.authId が渡した値であること
     expect(res.body.ok).toBe(true);
@@ -148,17 +158,23 @@ describe('Auth API Integration', () => {
   it('deleteUser API: should delete user with valid token', async () => {
     // Log in with the test user and obtain a JWT
     // テストユーザでログインし JWT を取得
+    const loginBody = { authId: testAuthId as string, password: testPassword };
+    const loginHeaders = await buildSigV4Headers(serverUrl, '/login', 'POST', loginBody);
     const loginRes = await request(serverUrl)
       .post('/login')
-      .send({ authId: testAuthId as string, password: testPassword });
+      .set(loginHeaders)
+      .send(loginBody);
     const token = loginRes.body.token;
 
     // Call /deleteUser to delete the dummy user created earlier
     // /deleteUser を呼び先ほど作成したダミーユーザを削除する
+    const delBody = { authId: 'api_test_user' };
+    const delHeaders = await buildSigV4Headers(serverUrl, '/deleteUser', 'POST', delBody);
     const res = await request(serverUrl)
       .post('/deleteUser')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ authId: 'api_test_user' });
+      .set(delHeaders)
+      .set('X-Revlm-JWT', `Bearer ${token}`)
+      .send(delBody);
 
     // 期待値: ok: true, deletedCount が 1
     expect(res.body.ok).toBe(true);
@@ -173,12 +189,15 @@ describe('Provisional Login API', () => {
   it('log in via provisional-login', async () => {
     const provisionalClient = new AuthClient({ secretMaster: process.env.PROVISIONAL_AUTH_SECRET_MASTER!, authDomain: process.env.PROVISIONAL_AUTH_DOMAIN! });
     const freshPassword = await provisionalClient.producePassword(process.env.PROVISIONAL_AUTH_ID!);
+    const body = {
+      authId: process.env.PROVISIONAL_AUTH_ID,
+      password: freshPassword
+    };
+    const headers = await buildSigV4Headers(serverUrl, '/provisional-login', 'POST', body);
     const res = await request(serverUrl)
       .post('/provisional-login')
-      .send({
-        authId: process.env.PROVISIONAL_AUTH_ID,
-        password: freshPassword
-      });
+      .set(headers)
+      .send(body);
     expect(res.body.ok).toBe(true);
     expect(res.body.token).toBeDefined();
     expect(res.body.user).toBeDefined();
@@ -187,9 +206,12 @@ describe('Provisional Login API', () => {
   // 不正な情報で /provisional-login を呼び出しても失敗することを確認
   it('verify that calling /provisional-login with invalid credentials fails', async () => {
     // 不正な資格情報では ok: false が返ることを確認
+    const body = { authId: 'wrong_id', password: 'wrong_password' };
+    const headers = await buildSigV4Headers(serverUrl, '/provisional-login', 'POST', body);
     const res = await request(serverUrl)
       .post('/provisional-login')
-      .send({ authId: 'wrong_id', password: 'wrong_password' });
+      .set(headers)
+      .send(body);
     expect(res.body.ok).toBe(false);
     expect(res.body.token).toBeUndefined();
   });
@@ -198,16 +220,22 @@ describe('Provisional Login API', () => {
   it('verify that using a provisional login token with revlm-gate results in a 403 status', async () => {
     const provisionalClient = new AuthClient({ secretMaster: process.env.PROVISIONAL_AUTH_SECRET_MASTER!, authDomain: process.env.PROVISIONAL_AUTH_DOMAIN! });
     const freshPassword = await provisionalClient.producePassword(process.env.PROVISIONAL_AUTH_ID!);
+    const loginBody = { authId: process.env.PROVISIONAL_AUTH_ID, password: freshPassword };
+    const loginHeaders = await buildSigV4Headers(serverUrl, '/provisional-login', 'POST', loginBody);
     const loginRes = await request(serverUrl)
       .post('/provisional-login')
-      .send({ authId: process.env.PROVISIONAL_AUTH_ID, password: freshPassword });
+      .set(loginHeaders)
+      .send(loginBody);
     expect(loginRes.body.ok).toBe(true);
     const token = loginRes.body.token;
 
+    const gateBody = { db: USERS_DB_NAME, collection: USERS_COLLECTION_NAME, method: 'find', filter: {} };
+    const gateHeaders = await buildSigV4Headers(serverUrl, '/revlm-gate', 'POST', gateBody);
     const res = await request(serverUrl)
       .post('/revlm-gate')
-      .set('Authorization', `Bearer ${token}`)
-      .send({ db: USERS_DB_NAME, collection: USERS_COLLECTION_NAME, method: 'find', filter: {} });
+      .set(gateHeaders)
+      .set('X-Revlm-JWT', `Bearer ${token}`)
+      .send(gateBody);
 
     expect(res.status).toBe(403);
     expect(res.body.ok).toBe(false);

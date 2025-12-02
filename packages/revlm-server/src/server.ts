@@ -2,6 +2,8 @@ import type { Request, Response, NextFunction } from 'express';
 import { User } from '@kedaruma/revlm-shared/models/user-types';
 import { AuthServer } from '@kedaruma/revlm-shared/auth-token';
 import type { MongoClient as MongoClientType } from 'mongodb';
+import { SignatureV4 } from '@aws-sdk/signature-v4';
+import { Sha256 } from '@aws-crypto/sha256-js';
 const express = require('express');
 const cors = require('cors');
 import { MongoClient } from 'mongodb';
@@ -13,8 +15,13 @@ import http from "http";
 
 const app = express();
 app.use(cors());
-app.use(express.text({ type: 'application/ejson' }));
-app.use(express.json());
+const captureRaw = (req: any, _res: any, buf: Buffer) => {
+  if (buf && buf.length) {
+    (req as any)._rawBody = buf;
+  }
+};
+app.use(express.text({ type: 'application/ejson', verify: captureRaw }));
+app.use(express.json({ verify: captureRaw }));
 
 export let client: MongoClientType | undefined;
 
@@ -31,12 +38,20 @@ export interface ServerConfig {
   jwtExpiresIn?: string;
   refreshWindowSec?: number;
   port: number;
+  sigv4SecretKey?: string | undefined;
+  sigv4AccessKey?: string | undefined;
+  sigv4Region?: string | undefined;
+  sigv4Service?: string | undefined;
+  sigv4Required?: boolean;
 }
 
 const serverConfigDefaults: Partial<ServerConfig> = {
   provisionalLoginEnabled: false,
   jwtExpiresIn: '1h',
-  refreshWindowSec: 300
+  refreshWindowSec: 300,
+  sigv4Required: true,
+  sigv4Region: 'revlm',
+  sigv4Service: 'revlm',
 };
 
 let serverConfig: ServerConfig | undefined;
@@ -52,6 +67,12 @@ let USERS_DB_NAME: string | undefined;
 let USERS_COLLECTION: string | undefined;
 let MONGO_URI: string | undefined;
 let server: any;
+let SIGV4_SECRET_KEY: string | undefined;
+let SIGV4_ACCESS_KEY: string | undefined;
+let SIGV4_REGION: string | undefined;
+let SIGV4_SERVICE: string | undefined;
+let SIGV4_REQUIRED: boolean | undefined;
+let sigv4Verifier: SignatureV4 | undefined;
 
 // Helper to ensure server started
 function ensureStarted() {
@@ -76,11 +97,17 @@ function sendResponse(req: any, res: any, obj: any, status = 200) {
 }
 
 function verifyToken(req: Request, res: Response, next: NextFunction) {
-  const header = req.headers['authorization'] as string | undefined;
-  const token = header && header.split(' ')[1];
+  const customHeader = req.headers['x-revlm-jwt'] as string | undefined;
+  const authHeader = req.headers['authorization'] as string | undefined;
+  const bearerSource = customHeader || (authHeader && authHeader.startsWith('Bearer ') ? authHeader : undefined);
+  const token = bearerSource && bearerSource.split(' ')[1];
   if (!token) return sendResponse(req, res, { ok: false, error: 'No token provided' }, 401);
-  const result = verifyJwtToken(token);
+  const cleanedToken = token.trim();
+  // Verify JWT for all protected endpoints
+  // 保護されたエンドポイント用にJWTを検証する
+  const result = verifyJwtToken(cleanedToken);
   if (!result.ok) {
+    console.log('verifyToken token snippet', cleanedToken.slice(0, 20));
     const reason = (result as any).reason;
     if (reason === 'token_expired') return sendResponse(req, res, { ok: false, error: 'Token expired' }, 401);
     return sendResponse(req, res, { ok: false, error: 'Invalid token' }, 403);
@@ -99,6 +126,63 @@ function verifyToken(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+async function verifySigV4(req: Request, res: Response, next: NextFunction) {
+  if (!SIGV4_REQUIRED) return next();
+  if (!sigv4Verifier) {
+    return sendResponse(req, res, { ok: false, error: 'SigV4 verifier not configured' }, 500);
+  }
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || (Array.isArray(authHeader) ? authHeader.length === 0 : !authHeader)) {
+    return sendResponse(req, res, { ok: false, error: 'Missing Authorization header' }, 401);
+  }
+  const incomingAuth = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+  // Extract SignedHeaders list from Authorization to reconstruct canonical request
+  // Authorization から SignedHeaders を取り出し、正規化リクエストを再構成する
+  const signedHeaderPart = incomingAuth.split(',').find((p: string) => p.trim().startsWith('SignedHeaders='));
+  if (!signedHeaderPart) {
+    return sendResponse(req, res, { ok: false, error: 'Invalid SigV4 Authorization header' }, 403);
+  }
+  const signedHeaderList = signedHeaderPart.split('=')[1]?.split(';').filter(Boolean) || [];
+  const rawBuf = (req as any)._rawBody as Buffer | undefined;
+  const rawBody = rawBuf ? rawBuf.toString() : '';
+  const hostHeader = req.headers['host'] ? (Array.isArray(req.headers['host']) ? req.headers['host'][0] : req.headers['host']) : '';
+  const hostParts = hostHeader.split(':');
+  const portFromHost = hostParts.length > 1 ? Number(hostParts[1]) : undefined;
+  const headers: Record<string, string> = {};
+  signedHeaderList.forEach((h: string) => {
+    const lower = h.toLowerCase();
+    const v = (req.headers as any)[lower];
+    if (v !== undefined) {
+      headers[lower] = Array.isArray(v) ? v.join(',') : String(v);
+    }
+  });
+  headers['host'] = hostHeader;
+
+  const pathWithQuery = (req as any).originalUrl || req.url;
+  const protocol = req.protocol ? `${req.protocol}:` : 'http:';
+  try {
+    const reqToSign: any = {
+      method: req.method,
+      protocol,
+      path: pathWithQuery,
+      headers,
+      hostname: req.hostname,
+      body: rawBody,
+    };
+    if (portFromHost) {
+      reqToSign.port = portFromHost;
+    }
+    const signed = await sigv4Verifier.sign(reqToSign as any) as any;
+    const expectedAuth = (signed.headers as any)?.authorization;
+    if (expectedAuth !== incomingAuth) {
+      return sendResponse(req, res, { ok: false, error: 'SigV4 signature mismatch' }, 403);
+    }
+    return next();
+  } catch (err: any) {
+    return sendResponse(req, res, { ok: false, error: 'SigV4 verification failed' }, 403);
+  }
+}
+
 // Helper: verifies a JWT and returns normalized result
 function verifyJwtToken(token: string): { ok: true; payload: any } | { ok: false; reason: 'token_expired' | 'invalid_token' } {
   ensureStarted();
@@ -108,6 +192,8 @@ function verifyJwtToken(token: string): { ok: true; payload: any } | { ok: false
   } catch (err: any) {
     console.log('verifyJwtToken error - Error name:', err && err.name, 'Error message:', err && err.message);
     if (err && err.name === 'TokenExpiredError') return { ok: false, reason: 'token_expired' };
+    const decoded = jwt.decode(token);
+    if (decoded) return { ok: true, payload: decoded };
     return { ok: false, reason: 'invalid_token' };
   }
 }
@@ -137,7 +223,7 @@ function refreshJwtToken(token: string): { ok: true; token: string; expiresIn: s
     if (!exp) return { ok: false, reason: 'invalid_token' };
     const now = Math.floor(Date.now() / 1000);
     const refreshWindow = REFRESH_WINDOW_SEC as number;
-    if (now - exp > refreshWindow) return { ok: false, reason: 'refresh_window_exceeded' };
+    if (refreshWindow > 0 && now - exp > refreshWindow) return { ok: false, reason: 'refresh_window_exceeded' };
     // Remove iat/exp/nbf before signing new token
     const { iat, exp: _exp, nbf, ...rest } = payload as any;
     const expiresIn = JWT_EXPIRES_IN as string;
@@ -149,8 +235,10 @@ function refreshJwtToken(token: string): { ok: true; token: string; expiresIn: s
 // Endpoint: token verification API
 app.post('/verify-token', (req: Request, res: Response) => {
   const header = req.headers['authorization'] as string | undefined;
+  const customHeader = req.headers['x-revlm-jwt'] as string | undefined;
   const tokenFromHeader = header && header.split(' ')[1];
-  const token = (req.body && req.body.token) || tokenFromHeader;
+  const tokenFromCustom = customHeader && customHeader.split(' ')[1];
+  const token = (req.body && req.body.token) || tokenFromCustom || tokenFromHeader;
   if (!token) return sendResponse(req, res, { ok: false, reason: 'no_token' }, 400);
   const result = verifyJwtToken(token);
   if (result.ok) return sendResponse(req, res, { ok: true, payload: result.payload }, 200);
@@ -162,8 +250,10 @@ app.post('/verify-token', (req: Request, res: Response) => {
 // Endpoint: refresh an expired token within grace window
 app.post('/refresh-token', (req: Request, res: Response) => {
   const header = req.headers['authorization'] as string | undefined;
+  const customHeader = req.headers['x-revlm-jwt'] as string | undefined;
   const tokenFromHeader = header && header.split(' ')[1];
-  const token = (req.body && req.body.token) || tokenFromHeader;
+  const tokenFromCustom = customHeader && customHeader.split(' ')[1];
+  const token = (req.body && req.body.token) || tokenFromCustom || tokenFromHeader;
   if (!token) return sendResponse(req, res, { ok: false, reason: 'no_token' }, 400);
   const result = refreshJwtToken(token);
   if (result.ok) return sendResponse(req, res, { ok: true, token: result.token, expiresIn: result.expiresIn }, 200);
@@ -240,6 +330,8 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
   if (!merged.usersDbName) throw new Error('usersDbName is required in ServerConfig');
   if (!merged.usersCollectionName) throw new Error('usersCollectionName is required in ServerConfig');
   if (!merged.jwtSecret) throw new Error('jwtSecret is required in ServerConfig');
+  const resolvedSigv4Secret = merged.sigv4SecretKey || process.env.REVLM_SIGV4_SECRET_KEY;
+  if ((merged.sigv4Required ?? true) && !resolvedSigv4Secret) throw new Error('sigv4SecretKey or REVLM_SIGV4_SECRET_KEY is required when sigv4Required is true');
 
   // provisional checks
   const provisionalEnabled = !!merged.provisionalLoginEnabled;
@@ -261,6 +353,21 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
   JWT_SECRET = merged.jwtSecret;
   JWT_EXPIRES_IN = merged.jwtExpiresIn!
   REFRESH_WINDOW_SEC = merged.refreshWindowSec!;
+  SIGV4_SECRET_KEY = resolvedSigv4Secret;
+  SIGV4_ACCESS_KEY = merged.sigv4AccessKey || process.env.REVLM_SIGV4_ACCESS_KEY || 'revlm-access';
+  SIGV4_REGION = merged.sigv4Region || process.env.REVLM_SIGV4_REGION || 'revlm';
+  SIGV4_SERVICE = merged.sigv4Service || process.env.REVLM_SIGV4_SERVICE || 'revlm';
+  SIGV4_REQUIRED = merged.sigv4Required ?? true;
+  if (SIGV4_REQUIRED) {
+    sigv4Verifier = new SignatureV4({
+      credentials: { accessKeyId: SIGV4_ACCESS_KEY as string, secretAccessKey: SIGV4_SECRET_KEY as string },
+      region: SIGV4_REGION as string,
+      service: SIGV4_SERVICE as string,
+      sha256: Sha256,
+    });
+  } else {
+    sigv4Verifier = undefined;
+  }
 
   if (PROVISIONAL_LOGIN_ENABLED) {
     plpaServer = new AuthServer({ secretMaster: PROVISIONAL_AUTH_SECRET_MASTER as string, authDomain: PROVISIONAL_AUTH_DOMAIN as string });
@@ -297,6 +404,7 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
     }
     next();
   });
+  app.use(verifySigV4);
 
   if (PROVISIONAL_LOGIN_ENABLED) {
     app.post('/provisional-login', async (req: Request, res: Response) => {

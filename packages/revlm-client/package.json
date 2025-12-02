@@ -42,6 +42,8 @@
   },
   "dependencies": {
     "@kedaruma/revlm-shared": "workspace:*",
+    "@aws-sdk/signature-v4": "^3.374.0",
+    "@aws-crypto/sha256-js": "^5.2.0",
     "bson": "^6.10.4",
     "dotenv": "^17.2.3"
   },

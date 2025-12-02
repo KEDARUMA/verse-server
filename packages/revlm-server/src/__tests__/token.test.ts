@@ -10,7 +10,7 @@
 import request from 'supertest';
 const jwt = require('jsonwebtoken');
 import dotenv from 'dotenv';
-import { SetupTestEnvironmentResult, setupTestEnvironment, cleanupTestEnvironment } from './setupTestMongo';
+import { SetupTestEnvironmentResult, setupTestEnvironment, cleanupTestEnvironment, buildSigV4Headers } from './setupTestMongo';
 import { ensureDefined } from '@kedaruma/revlm-shared/utils/asserts';
 import path from 'path';
 
@@ -28,6 +28,13 @@ const REFRESH_WINDOW_SEC = Number(process.env.REFRESH_WINDOW_SEC ?? '300');
 let testEnv: SetupTestEnvironmentResult;
 let SERVER_URL: string;
 
+async function signedPost(pathname: string, body: any, token?: string) {
+  const headers = await buildSigV4Headers(SERVER_URL, pathname, 'POST', body);
+  const req = request(SERVER_URL).post(pathname).set(headers);
+  if (token) req.set('X-Revlm-JWT', `Bearer ${token}`);
+  return req.send(body);
+}
+
 beforeAll(async () => {
   console.log('beforeAll: start');
 
@@ -40,6 +47,10 @@ beforeAll(async () => {
       usersCollectionName: ensureDefined(process.env.USERS_COLLECTION_NAME || 'users', 'USERS_COLLECTION_NAME is required'),
       jwtSecret: JWT_SECRET,
       provisionalLoginEnabled: false,
+      sigv4SecretKey: process.env.REVLM_SIGV4_SECRET_KEY,
+      sigv4AccessKey: process.env.REVLM_SIGV4_ACCESS_KEY,
+      sigv4Region: process.env.REVLM_SIGV4_REGION,
+      sigv4Service: process.env.REVLM_SIGV4_SERVICE,
       port: Number(process.env.PORT),
     }
   });
@@ -63,7 +74,7 @@ describe('/verify-token', () => {
   // 有効なトークンに対してペイロードを返す
   it('returns payload for valid token', async () => {
     const token = jwt.sign({ foo: 'bar' }, JWT_SECRET, { expiresIn: '1h' });
-    const res = await request(SERVER_URL).post('/verify-token').set('Authorization', `Bearer ${token}`);
+    const res = await signedPost('/verify-token', {}, token);
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(res.body.payload).toBeDefined();
@@ -74,7 +85,7 @@ describe('/verify-token', () => {
   it('returns token_expired for expired token', async () => {
     const payload = { foo: 'baz', exp: Math.floor(Date.now() / 1000) - 10 };
     const token = jwt.sign(payload as any, JWT_SECRET);
-    const res = await request(SERVER_URL).post('/verify-token').set('Authorization', `Bearer ${token}`);
+    const res = await signedPost('/verify-token', {}, token);
     expect(res.status).toBe(401);
     expect(res.body.ok).toBe(false);
     expect(res.body.reason).toBe('token_expired');
@@ -82,7 +93,7 @@ describe('/verify-token', () => {
 
   // 不正なトークンに対して invalid_token を返す
   it('returns invalid_token for malformed token', async () => {
-    const res = await request(SERVER_URL).post('/verify-token').set('Authorization', `Bearer invalid.token.here`);
+    const res = await signedPost('/verify-token', {}, 'invalid.token.here');
     expect(res.status).toBe(403);
     expect(res.body.ok).toBe(false);
     expect(res.body.reason).toBe('invalid_token');
@@ -94,12 +105,12 @@ describe('/refresh-token', () => {
   it('refreshes an expired non-provisional token within window', async () => {
     const payload = { userId: 'u1', roles: ['a'], exp: Math.floor(Date.now() / 1000) - 10 };
     const token = jwt.sign(payload as any, JWT_SECRET);
-    const res = await request(SERVER_URL).post('/refresh-token').set('Authorization', `Bearer ${token}`);
+    const res = await signedPost('/refresh-token', {}, token);
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(res.body.token).toBeDefined();
     // new token should be valid
-    const verify = await request(SERVER_URL).post('/verify-token').set('Authorization', `Bearer ${res.body.token}`);
+    const verify = await signedPost('/verify-token', {}, res.body.token);
     expect(verify.status).toBe(200);
     expect(verify.body.ok).toBe(true);
   });
@@ -107,7 +118,7 @@ describe('/refresh-token', () => {
   // トークンが期限切れでない場合はリフレッシュを拒否する
   it('rejects refresh when token is not expired', async () => {
     const token = jwt.sign({ foo: 'x' }, JWT_SECRET, { expiresIn: '1h' });
-    const res = await request(SERVER_URL).post('/refresh-token').set('Authorization', `Bearer ${token}`);
+    const res = await signedPost('/refresh-token', {}, token);
     expect(res.status).toBe(400);
     expect(res.body.ok).toBe(false);
     expect(res.body.reason).toBe('not_expired');
@@ -117,7 +128,7 @@ describe('/refresh-token', () => {
   it('rejects provisional tokens even if expired', async () => {
     const payload = { userType: 'provisional', exp: Math.floor(Date.now() / 1000) - 10 };
     const token = jwt.sign(payload as any, JWT_SECRET);
-    const res = await request(SERVER_URL).post('/refresh-token').set('Authorization', `Bearer ${token}`);
+    const res = await signedPost('/refresh-token', {}, token);
     expect(res.status).toBe(403);
     expect(res.body.ok).toBe(false);
     expect(res.body.reason).toBe('provisional_forbidden');
@@ -128,9 +139,53 @@ describe('/refresh-token', () => {
     const old = Math.floor(Date.now() / 1000) - (REFRESH_WINDOW_SEC + 10);
     const payload = { userId: 'u2', exp: old };
     const token = jwt.sign(payload as any, JWT_SECRET);
-    const res = await request(SERVER_URL).post('/refresh-token').set('Authorization', `Bearer ${token}`);
+    const res = await signedPost('/refresh-token', {}, token);
     expect(res.status).toBe(403);
     expect(res.body.ok).toBe(false);
     expect(res.body.reason).toBe('refresh_window_exceeded');
+  });
+});
+
+// refresh with unlimited window still succeeds for long-expired tokens (refreshWindowSec=0)
+// refreshWindowSec=0（無制限）のときに大幅に期限切れたトークンでもリフレッシュできることを検証する
+describe('/refresh-token with unlimited window', () => {
+  let testEnvUnlimited: SetupTestEnvironmentResult;
+  let serverUrlUnlimited: string;
+
+  beforeAll(async () => {
+    testEnvUnlimited = await setupTestEnvironment({
+      serverConfig: {
+        mongoUri: process.env.MONGO_URI as string,
+        usersDbName: ensureDefined(process.env.USERS_DB_NAME || 'testdb', 'USERS_DB_NAME is required'),
+        usersCollectionName: ensureDefined(process.env.USERS_COLLECTION_NAME || 'users', 'USERS_COLLECTION_NAME is required'),
+        jwtSecret: JWT_SECRET,
+        provisionalLoginEnabled: false,
+        refreshWindowSec: 0,
+        sigv4SecretKey: process.env.REVLM_SIGV4_SECRET_KEY,
+        sigv4AccessKey: process.env.REVLM_SIGV4_ACCESS_KEY,
+        sigv4Region: process.env.REVLM_SIGV4_REGION,
+        sigv4Service: process.env.REVLM_SIGV4_SERVICE,
+        port: Number(process.env.PORT),
+      }
+    });
+    serverUrlUnlimited = testEnvUnlimited.serverUrl;
+  });
+
+  afterAll(async () => {
+    await cleanupTestEnvironment(testEnvUnlimited);
+  });
+
+  it('refreshes even long-expired token when window is unlimited', async () => {
+    const headers = await buildSigV4Headers(serverUrlUnlimited, '/refresh-token', 'POST', {});
+    const expiredPayload = { userId: 'u3', exp: Math.floor(Date.now() / 1000) - 60 * 60 * 24 };
+    const token = jwt.sign(expiredPayload as any, JWT_SECRET);
+    const res = await request(serverUrlUnlimited)
+      .post('/refresh-token')
+      .set(headers)
+      .set('X-Revlm-JWT', `Bearer ${token}`)
+      .send({});
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.token).toBeDefined();
   });
 });

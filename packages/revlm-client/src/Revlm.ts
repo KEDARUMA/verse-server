@@ -1,5 +1,7 @@
 import { EJSON } from 'bson';
 import { AuthClient } from '@kedaruma/revlm-shared';
+import { SignatureV4 } from '@aws-sdk/signature-v4';
+import { Sha256 } from '@aws-crypto/sha256-js';
 import type { User as UserDoc } from '@kedaruma/revlm-shared/models/user-types';
 import RevlmDBDatabase from "./RevlmDBDatabase";
 import { LoginResponse, ProvisionalLoginResponse } from './Revlm.types';
@@ -18,6 +20,12 @@ export type RevlmOptions = {
   autoSetToken?: boolean;
   // automatically refresh on 401 once and retry the original request
   autoRefreshOn401?: boolean;
+  // SigV4 settings (default on if secret is present)
+  sigv4SecretKey?: string;
+  sigv4AccessKey?: string;
+  sigv4Region?: string;
+  sigv4Service?: string;
+  sigv4Enabled?: boolean;
 };
 
 export type RevlmResponse<T = any> = {
@@ -39,6 +47,7 @@ export default class Revlm {
   private provisionalAuthDomain: string;
   private autoSetToken: boolean;
   private autoRefreshOn401: boolean;
+  private sigv4Signer: SignatureV4 | null;
 
   constructor(baseUrl: string, opts: RevlmOptions = {}) {
     if (!baseUrl) throw new Error('baseUrl is required');
@@ -50,6 +59,26 @@ export default class Revlm {
     this.provisionalAuthDomain = opts.provisionalAuthDomain || '';
     this.autoSetToken = opts.autoSetToken ?? true;
     this.autoRefreshOn401 = opts.autoRefreshOn401 || false;
+    const sigv4SecretKey = opts.sigv4SecretKey || process.env.REVLM_SIGV4_SECRET_KEY;
+    const sigv4AccessKey = opts.sigv4AccessKey || process.env.REVLM_SIGV4_ACCESS_KEY || 'revlm-access';
+    const sigv4Region = opts.sigv4Region || process.env.REVLM_SIGV4_REGION || 'revlm';
+    const sigv4Service = opts.sigv4Service || process.env.REVLM_SIGV4_SERVICE || 'revlm';
+    const sigv4Enabled = opts.sigv4Enabled ?? true;
+    if (sigv4Enabled) {
+      if (!sigv4SecretKey) {
+        throw new Error('SigV4 is enabled but REVLM_SIGV4_SECRET_KEY or opts.sigv4SecretKey is not provided');
+      }
+      // SigV4 signer for all outgoing requests
+      // 送信リクエスト全てにSigV4署名を付与するサイナー
+      this.sigv4Signer = new SignatureV4({
+        credentials: { accessKeyId: sigv4AccessKey, secretAccessKey: sigv4SecretKey },
+        region: sigv4Region,
+        service: sigv4Service,
+        sha256: Sha256,
+      });
+    } else {
+      this.sigv4Signer = null;
+    }
 
     if (!this.fetchImpl) {
       throw new Error('No fetch implementation available. Provide fetchImpl in options or run in Node 18+ with global fetch.');
@@ -105,7 +134,7 @@ export default class Revlm {
       headers['Content-Type'] = 'application/ejson';
     }
     if (this._token) {
-      headers['Authorization'] = `Bearer ${this._token}`;
+      headers['X-Revlm-JWT'] = `Bearer ${this._token}`;
     }
     return headers;
   }
@@ -133,6 +162,42 @@ export default class Revlm {
     return pathname.includes('/login') || pathname.includes('/provisional-login') || pathname.includes('/refresh-token') || pathname.includes('/verify-token');
   }
 
+  private async signIfNeeded(
+    url: string,
+    method: string,
+    headers: Record<string, string>,
+    body?: string
+  ): Promise<{ signedUrl: string; signedHeaders: Record<string, string> }> {
+    if (!this.sigv4Signer) {
+      return { signedUrl: url, signedHeaders: headers };
+    }
+    // Canonicalize and sign the request for SigV4
+    // SigV4用にリクエストを正規化して署名
+    const u = new URL(url);
+    // ensure host header present for signing
+    const signingHeaders: Record<string, string> = {
+      host: u.host,
+      ...headers,
+    };
+    const reqToSign: any = {
+      method,
+      protocol: u.protocol,
+      path: u.pathname + (u.search || ''),
+      hostname: u.hostname,
+      headers: signingHeaders,
+      body: body ?? '',
+    };
+    if (u.port) {
+      reqToSign.port = Number(u.port);
+    }
+    const signed = await this.sigv4Signer.sign(reqToSign as any) as any;
+    const signedHeaders: Record<string, string> = {};
+    Object.entries(signed.headers || {}).forEach(([k, v]) => {
+      signedHeaders[k] = Array.isArray(v) ? v.join(',') : String(v);
+    });
+    return { signedUrl: url, signedHeaders };
+  }
+
   private async requestWithRetry(
     path: string,
     method = 'POST',
@@ -147,10 +212,11 @@ export default class Revlm {
     if (hasBody) {
       serializedBody = EJSON.stringify(body);
     }
+    const { signedUrl, signedHeaders } = await this.signIfNeeded(url, method, headers, serializedBody);
     try {
-      const res = await this.fetchImpl(url, {
+      const res = await this.fetchImpl(signedUrl, {
         method,
-        headers,
+        headers: signedHeaders,
         body: serializedBody,
       } as any);
       const parsed = await this.parseResponse(res);

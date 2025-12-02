@@ -16,6 +16,7 @@ import {
   createTestUser,
   cleanupTestUser,
   cleanupTestEnvironment,
+  buildSigV4Headers,
 } from '@kedaruma/revlm-server/__tests__/setupTestMongo';
 
 // Load environment variables
@@ -59,6 +60,10 @@ beforeAll(async () => {
       provisionalAuthId: PROVISIONAL_AUTH_ID,
       provisionalAuthSecretMaster: PROVISIONAL_AUTH_SECRET_MASTER,
       provisionalAuthDomain: PROVISIONAL_AUTH_DOMAIN,
+      sigv4SecretKey: process.env.REVLM_SIGV4_SECRET_KEY,
+      sigv4AccessKey: process.env.REVLM_SIGV4_ACCESS_KEY,
+      sigv4Region: process.env.REVLM_SIGV4_REGION,
+      sigv4Service: process.env.REVLM_SIGV4_SERVICE,
       port: Number(process.env.PORT),
     },
   });
@@ -79,6 +84,7 @@ beforeAll(async () => {
   // ログインして JWT 取得
   const loginRes = await request(serverUrl)
     .post('/login')
+    .set(await buildSigV4Headers(serverUrl, '/login', 'POST', { authId: testAuthId, password: testPassword }))
     .send({ authId: testAuthId, password: testPassword });
   expect(loginRes.status).toBe(200);
   expect(loginRes.body.ok).toBe(true);
@@ -104,9 +110,11 @@ afterAll(async () => {
 // helper: call /revlm-gate
 // helper: /revlm-gate 呼び出し
 async function gateCall(body: any) {
+  const headers = await buildSigV4Headers(serverUrl, '/revlm-gate', 'POST', body);
   return request(serverUrl)
     .post('/revlm-gate')
-    .set('Authorization', `Bearer ${token}`)
+    .set(headers)
+    .set('X-Revlm-JWT', `Bearer ${token}`)
     .send(body);
 }
 
