@@ -1,5 +1,6 @@
 export { default as Revlm } from './Revlm';
 export * from './Revlm';
+export type { RevlmOptions } from './Revlm';
 export * from './Revlm.types';
 export { default as MdbCollection } from './MdbCollection';
 export { default as RevlmDBDatabase } from './RevlmDBDatabase';

@@ -12,7 +12,8 @@
     "pack:all": "pnpm -r exec pnpm pack",
     "build:packages": "pnpm --filter @kedaruma/revlm-shared run build && pnpm --filter @kedaruma/revlm-server run build && pnpm --filter @kedaruma/revlm-client run build",
     "publish:all": "pnpm publish --filter @kedaruma/revlm-shared --access public && pnpm publish --filter @kedaruma/revlm-server --access public && pnpm publish --filter @kedaruma/revlm-client --access public",
-    "bump:patch": "node scripts/bump-patch-versions.js"
+    "bump:patch": "node scripts/bump-patch-versions.js",
+    "bump-build-publish": "node scripts/bump-build-publish.js"
   },
   "keywords": [],
   "author": "",
