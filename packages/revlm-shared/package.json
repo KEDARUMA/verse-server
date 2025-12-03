@@ -1,6 +1,6 @@
 {
   "name": "@kedaruma/revlm-shared",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "private": false,
   "description": "Shared TypeScript types, auth helpers, and utilities for the Revlm client/server packages.",
   "type": "module",

@@ -51,10 +51,12 @@ function main() {
     process.exit(1);
   }
 
-  const unique = Array.from(new Set(args));
-  const resolved = unique
+  const normalized = args
     .map((a) => a.toLowerCase())
-    .filter((a) => targets[a]);
+    .flatMap((a) => (a === 'all' ? Object.keys(targets) : a));
+
+  const unique = Array.from(new Set(normalized));
+  const resolved = unique.filter((a) => targets[a]);
 
   if (resolved.length === 0) {
     console.error('No valid targets provided. Use server, client, or shared.');
