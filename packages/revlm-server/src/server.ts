@@ -12,6 +12,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 import type { ObjectId as ObjectIdType } from 'bson';
 import http from "http";
+const pkg = require('../package.json');
 
 const app = express();
 app.use(cors());
@@ -145,8 +146,13 @@ async function verifySigV4(req: Request, res: Response, next: NextFunction) {
   const signedHeaderList = signedHeaderPart.split('=')[1]?.split(';').filter(Boolean) || [];
   const rawBuf = (req as any)._rawBody as Buffer | undefined;
   const rawBody = rawBuf ? rawBuf.toString() : '';
-  const hostHeader = req.headers['host'] ? (Array.isArray(req.headers['host']) ? req.headers['host'][0] : req.headers['host']) : '';
-  const hostParts = hostHeader.split(':');
+  const xfProto = req.headers['x-forwarded-proto'];
+  const xfPort = req.headers['x-forwarded-port'];
+  const xfHost = req.headers['x-forwarded-host'];
+  const hostHeaderRaw = req.headers['host'] ? (Array.isArray(req.headers['host']) ? req.headers['host'][0] : req.headers['host']) : '';
+  const hostHeaderBase = xfHost ? (Array.isArray(xfHost) ? xfHost[0] : xfHost) : hostHeaderRaw;
+  const hostParts = hostHeaderBase ? hostHeaderBase.split(':') : [''];
+  const hostOnly = hostParts[0] || '';
   const portFromHost = hostParts.length > 1 ? Number(hostParts[1]) : undefined;
   const headers: Record<string, string> = {};
   signedHeaderList.forEach((h: string) => {
@@ -156,25 +162,70 @@ async function verifySigV4(req: Request, res: Response, next: NextFunction) {
       headers[lower] = Array.isArray(v) ? v.join(',') : String(v);
     }
   });
-  headers['host'] = hostHeader;
+  const protoFromHeader = xfProto ? (Array.isArray(xfProto) ? xfProto[0] : xfProto) : undefined;
+  const protocol = protoFromHeader
+    ? `${protoFromHeader.replace(/:$/, '')}:`
+    : (req.protocol ? `${req.protocol}:` : 'http:');
+  const portCandidate = xfPort ? Number(Array.isArray(xfPort) ? xfPort[0] : xfPort) : portFromHost;
+  const effectivePort = portCandidate && !Number.isNaN(portCandidate) ? portCandidate : undefined;
+  // Use incoming host header as-is; do not rewrite with port to avoid SigV4 mismatch behind proxies
+  const effectiveHost = hostHeaderBase;
+  headers['host'] = effectiveHost;
 
   const pathWithQuery = (req as any).originalUrl || req.url;
-  const protocol = req.protocol ? `${req.protocol}:` : 'http:';
+
+  // Debug log for SigV4 mismatch investigation (can be noisy; remove or guard in production)
+  console.log('SigV4 debug', {
+    incomingAuth,
+    host: req.headers['host'],
+    xfHost,
+    xfProto,
+    xfPort,
+    path: pathWithQuery,
+    effectiveHost,
+    protocol,
+    effectivePort,
+  });
+
   try {
+    const sha = new Sha256();
+    sha.update(rawBody);
+    const payloadHash = Buffer.from(await sha.digest()).toString('hex');
+    const amzDateHeader = headers['x-amz-date'];
+    const amzMatch = typeof amzDateHeader === 'string'
+      ? /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(amzDateHeader)
+      : null;
+    const signingDate = amzMatch
+      ? new Date(Date.UTC(
+        Number(amzMatch[1]),
+        Number(amzMatch[2]) - 1,
+        Number(amzMatch[3]),
+        Number(amzMatch[4]),
+        Number(amzMatch[5]),
+        Number(amzMatch[6]),
+      ))
+      : undefined;
     const reqToSign: any = {
       method: req.method,
       protocol,
       path: pathWithQuery,
       headers,
-      hostname: req.hostname,
+      hostname: hostOnly || req.hostname,
       body: rawBody,
+      payloadHash,
     };
-    if (portFromHost) {
-      reqToSign.port = portFromHost;
+    if (effectivePort) {
+      reqToSign.port = effectivePort;
     }
-    const signed = await sigv4Verifier.sign(reqToSign as any) as any;
+    const signed = await sigv4Verifier.sign(reqToSign as any, signingDate ? { signingDate } : undefined) as any;
     const expectedAuth = (signed.headers as any)?.authorization;
     if (expectedAuth !== incomingAuth) {
+      console.log('SigV4 mismatch diff', {
+        expectedAuth,
+        incomingAuth,
+        reqToSign,
+        signedHeaders: signed.headers,
+      });
       return sendResponse(req, res, { ok: false, error: 'SigV4 signature mismatch' }, 403);
     }
     return next();
@@ -320,6 +371,7 @@ function isServerListening(s: any) {
 export async function startServer(config: ServerConfig): Promise<http.Server> {
   // validate existence
   if (!config) throw new Error('Configuration object is required');
+  console.log(`Revlm server version ${pkg.version || 'unknown'} starting...`);
 
   // filter undefined values so defaults are preserved
   const filteredConfig: Partial<ServerConfig> = Object.fromEntries(Object.entries(config).filter(([, v]) => v !== undefined)) as Partial<ServerConfig>;
