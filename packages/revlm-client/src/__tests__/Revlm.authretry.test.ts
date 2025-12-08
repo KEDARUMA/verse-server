@@ -1,10 +1,5 @@
 import Revlm from '../Revlm';
 
-process.env.REVLM_SIGV4_SECRET_KEY = process.env.REVLM_SIGV4_SECRET_KEY || 'test-sigv4-secret';
-process.env.REVLM_SIGV4_ACCESS_KEY = process.env.REVLM_SIGV4_ACCESS_KEY || 'revlm-access';
-process.env.REVLM_SIGV4_REGION = process.env.REVLM_SIGV4_REGION || 'revlm';
-process.env.REVLM_SIGV4_SERVICE = process.env.REVLM_SIGV4_SERVICE || 'revlm';
-
 type MockResponseInit = { status: number; body: any };
 
 function makeMockResponse({ status, body }: MockResponseInit) {

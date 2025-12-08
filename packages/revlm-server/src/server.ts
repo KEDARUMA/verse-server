@@ -2,8 +2,6 @@ import type { Request, Response, NextFunction } from 'express';
 import { User } from '@kedaruma/revlm-shared/models/user-types';
 import { AuthServer } from '@kedaruma/revlm-shared/auth-token';
 import type { MongoClient as MongoClientType } from 'mongodb';
-import { SignatureV4 } from '@aws-sdk/signature-v4';
-import { Sha256 } from '@aws-crypto/sha256-js';
 const express = require('express');
 const cors = require('cors');
 import { MongoClient } from 'mongodb';
@@ -39,20 +37,12 @@ export interface ServerConfig {
   jwtExpiresIn?: string;
   refreshWindowSec?: number;
   port: number;
-  sigv4SecretKey?: string | undefined;
-  sigv4AccessKey?: string | undefined;
-  sigv4Region?: string | undefined;
-  sigv4Service?: string | undefined;
-  sigv4Required?: boolean;
 }
 
 const serverConfigDefaults: Partial<ServerConfig> = {
   provisionalLoginEnabled: false,
   jwtExpiresIn: '1h',
   refreshWindowSec: 300,
-  sigv4Required: true,
-  sigv4Region: 'revlm',
-  sigv4Service: 'revlm',
 };
 
 let serverConfig: ServerConfig | undefined;
@@ -68,12 +58,6 @@ let USERS_DB_NAME: string | undefined;
 let USERS_COLLECTION: string | undefined;
 let MONGO_URI: string | undefined;
 let server: any;
-let SIGV4_SECRET_KEY: string | undefined;
-let SIGV4_ACCESS_KEY: string | undefined;
-let SIGV4_REGION: string | undefined;
-let SIGV4_SERVICE: string | undefined;
-let SIGV4_REQUIRED: boolean | undefined;
-let sigv4Verifier: SignatureV4 | undefined;
 
 // Helper to ensure server started
 function ensureStarted() {
@@ -125,113 +109,6 @@ function verifyToken(req: Request, res: Response, next: NextFunction) {
   }
 
   next();
-}
-
-async function verifySigV4(req: Request, res: Response, next: NextFunction) {
-  if (!SIGV4_REQUIRED) return next();
-  if (!sigv4Verifier) {
-    return sendResponse(req, res, { ok: false, error: 'SigV4 verifier not configured' }, 500);
-  }
-  const authHeader = req.headers['authorization'];
-  if (!authHeader || (Array.isArray(authHeader) ? authHeader.length === 0 : !authHeader)) {
-    return sendResponse(req, res, { ok: false, error: 'Missing Authorization header' }, 401);
-  }
-  const incomingAuth = Array.isArray(authHeader) ? authHeader[0] : authHeader;
-  // Extract SignedHeaders list from Authorization to reconstruct canonical request
-  // Authorization から SignedHeaders を取り出し、正規化リクエストを再構成する
-  const signedHeaderPart = incomingAuth.split(',').find((p: string) => p.trim().startsWith('SignedHeaders='));
-  if (!signedHeaderPart) {
-    return sendResponse(req, res, { ok: false, error: 'Invalid SigV4 Authorization header' }, 403);
-  }
-  const signedHeaderList = signedHeaderPart.split('=')[1]?.split(';').filter(Boolean) || [];
-  const rawBuf = (req as any)._rawBody as Buffer | undefined;
-  const rawBody = rawBuf ? rawBuf.toString() : '';
-  const xfProto = req.headers['x-forwarded-proto'];
-  const xfPort = req.headers['x-forwarded-port'];
-  const xfHost = req.headers['x-forwarded-host'];
-  const hostHeaderRaw = req.headers['host'] ? (Array.isArray(req.headers['host']) ? req.headers['host'][0] : req.headers['host']) : '';
-  const hostHeaderBase = xfHost ? (Array.isArray(xfHost) ? xfHost[0] : xfHost) : hostHeaderRaw;
-  const hostParts = hostHeaderBase ? hostHeaderBase.split(':') : [''];
-  const hostOnly = hostParts[0] || '';
-  const portFromHost = hostParts.length > 1 ? Number(hostParts[1]) : undefined;
-  const headers: Record<string, string> = {};
-  signedHeaderList.forEach((h: string) => {
-    const lower = h.toLowerCase();
-    const v = (req.headers as any)[lower];
-    if (v !== undefined) {
-      headers[lower] = Array.isArray(v) ? v.join(',') : String(v);
-    }
-  });
-  const protoFromHeader = xfProto ? (Array.isArray(xfProto) ? xfProto[0] : xfProto) : undefined;
-  const protocol = protoFromHeader
-    ? `${protoFromHeader.replace(/:$/, '')}:`
-    : (req.protocol ? `${req.protocol}:` : 'http:');
-  const portCandidate = xfPort ? Number(Array.isArray(xfPort) ? xfPort[0] : xfPort) : portFromHost;
-  const effectivePort = portCandidate && !Number.isNaN(portCandidate) ? portCandidate : undefined;
-  // Use incoming host header as-is; do not rewrite with port to avoid SigV4 mismatch behind proxies
-  const effectiveHost = hostHeaderBase;
-  headers['host'] = effectiveHost;
-
-  const pathWithQuery = (req as any).originalUrl || req.url;
-
-  // Debug log for SigV4 mismatch investigation (can be noisy; remove or guard in production)
-  console.log('SigV4 debug', {
-    incomingAuth,
-    host: req.headers['host'],
-    xfHost,
-    xfProto,
-    xfPort,
-    path: pathWithQuery,
-    effectiveHost,
-    protocol,
-    effectivePort,
-  });
-
-  try {
-    const sha = new Sha256();
-    sha.update(rawBody);
-    const payloadHash = Buffer.from(await sha.digest()).toString('hex');
-    const amzDateHeader = headers['x-amz-date'];
-    const amzMatch = typeof amzDateHeader === 'string'
-      ? /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(amzDateHeader)
-      : null;
-    const signingDate = amzMatch
-      ? new Date(Date.UTC(
-        Number(amzMatch[1]),
-        Number(amzMatch[2]) - 1,
-        Number(amzMatch[3]),
-        Number(amzMatch[4]),
-        Number(amzMatch[5]),
-        Number(amzMatch[6]),
-      ))
-      : undefined;
-    const reqToSign: any = {
-      method: req.method,
-      protocol,
-      path: pathWithQuery,
-      headers,
-      hostname: hostOnly || req.hostname,
-      body: rawBody,
-      payloadHash,
-    };
-    if (effectivePort) {
-      reqToSign.port = effectivePort;
-    }
-    const signed = await sigv4Verifier.sign(reqToSign as any, signingDate ? { signingDate } : undefined) as any;
-    const expectedAuth = (signed.headers as any)?.authorization;
-    if (expectedAuth !== incomingAuth) {
-      console.log('SigV4 mismatch diff', {
-        expectedAuth,
-        incomingAuth,
-        reqToSign,
-        signedHeaders: signed.headers,
-      });
-      return sendResponse(req, res, { ok: false, error: 'SigV4 signature mismatch' }, 403);
-    }
-    return next();
-  } catch (err: any) {
-    return sendResponse(req, res, { ok: false, error: 'SigV4 verification failed' }, 403);
-  }
 }
 
 // Helper: verifies a JWT and returns normalized result
@@ -382,8 +259,6 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
   if (!merged.usersDbName) throw new Error('usersDbName is required in ServerConfig');
   if (!merged.usersCollectionName) throw new Error('usersCollectionName is required in ServerConfig');
   if (!merged.jwtSecret) throw new Error('jwtSecret is required in ServerConfig');
-  const resolvedSigv4Secret = merged.sigv4SecretKey || process.env.REVLM_SIGV4_SECRET_KEY;
-  if ((merged.sigv4Required ?? true) && !resolvedSigv4Secret) throw new Error('sigv4SecretKey or REVLM_SIGV4_SECRET_KEY is required when sigv4Required is true');
 
   // provisional checks
   const provisionalEnabled = !!merged.provisionalLoginEnabled;
@@ -405,21 +280,6 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
   JWT_SECRET = merged.jwtSecret;
   JWT_EXPIRES_IN = merged.jwtExpiresIn!
   REFRESH_WINDOW_SEC = merged.refreshWindowSec!;
-  SIGV4_SECRET_KEY = resolvedSigv4Secret;
-  SIGV4_ACCESS_KEY = merged.sigv4AccessKey || process.env.REVLM_SIGV4_ACCESS_KEY || 'revlm-access';
-  SIGV4_REGION = merged.sigv4Region || process.env.REVLM_SIGV4_REGION || 'revlm';
-  SIGV4_SERVICE = merged.sigv4Service || process.env.REVLM_SIGV4_SERVICE || 'revlm';
-  SIGV4_REQUIRED = merged.sigv4Required ?? true;
-  if (SIGV4_REQUIRED) {
-    sigv4Verifier = new SignatureV4({
-      credentials: { accessKeyId: SIGV4_ACCESS_KEY as string, secretAccessKey: SIGV4_SECRET_KEY as string },
-      region: SIGV4_REGION as string,
-      service: SIGV4_SERVICE as string,
-      sha256: Sha256,
-    });
-  } else {
-    sigv4Verifier = undefined;
-  }
 
   if (PROVISIONAL_LOGIN_ENABLED) {
     plpaServer = new AuthServer({ secretMaster: PROVISIONAL_AUTH_SECRET_MASTER as string, authDomain: PROVISIONAL_AUTH_DOMAIN as string });
@@ -456,7 +316,6 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
     }
     next();
   });
-  app.use(verifySigV4);
 
   if (PROVISIONAL_LOGIN_ENABLED) {
     app.post('/provisional-login', async (req: Request, res: Response) => {

@@ -10,8 +10,6 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import http, { Server } from 'http';
 import {AuthClient} from "@kedaruma/revlm-shared/auth-token";
 import request from "supertest";
-import { SignatureV4 } from '@aws-sdk/signature-v4';
-import { Sha256 } from '@aws-crypto/sha256-js';
 
 export interface ServerConfigEnv extends Omit<ServerConfig, 'mongoUri'> {
   mongoUri?: string | null;
@@ -26,41 +24,6 @@ export interface SetupTestEnvironmentResult {
   mongod?: MongoMemoryServer | undefined;
   server: Server;
   serverUrl: string;
-}
-
-export async function buildSigV4Headers(serverUrl: string, path: string, method: string, body?: any): Promise<Record<string, string>> {
-  const url = new URL(serverUrl);
-  const signer = new SignatureV4({
-    credentials: {
-      accessKeyId: process.env.REVLM_SIGV4_ACCESS_KEY || 'revlm-access',
-      secretAccessKey: process.env.REVLM_SIGV4_SECRET_KEY || 'test-sigv4-secret',
-    },
-    region: process.env.REVLM_SIGV4_REGION || 'revlm',
-    service: process.env.REVLM_SIGV4_SERVICE || 'revlm',
-    sha256: Sha256,
-  });
-  const headers: Record<string, string> = {
-    host: url.host,
-    'content-type': 'application/json',
-  };
-  const payload = body !== undefined ? JSON.stringify(body) : '';
-  const reqToSign: any = {
-    method,
-    protocol: url.protocol,
-    path,
-    headers,
-    hostname: url.hostname,
-    body: payload,
-  };
-  if (url.port) {
-    reqToSign.port = Number(url.port);
-  }
-  const signed = await signer.sign(reqToSign as any) as any;
-  const out: Record<string, string> = {};
-  Object.entries(signed.headers || {}).forEach(([k, v]) => {
-    out[k] = Array.isArray(v) ? v.join(',') : String(v);
-  });
-  return out;
 }
 
 /**
@@ -161,10 +124,8 @@ export async function createTestUser(options: CreateTestUserOptions): Promise<vo
 
     // Perform provisional login to obtain a token
     // provisional login で仮認証を行いトークンを取得
-    const provisionalHeaders = await buildSigV4Headers(serverUrl, '/provisional-login', 'POST', { authId: provisionalAuthId, password: provisionalPassword });
     const provisionalLoginRes = await request(serverUrl)
       .post('/provisional-login')
-      .set(provisionalHeaders)
       .send({ authId: provisionalAuthId, password: provisionalPassword });
 
     if (!provisionalLoginRes.body || !provisionalLoginRes.body.ok) {
@@ -176,7 +137,6 @@ export async function createTestUser(options: CreateTestUserOptions): Promise<vo
     // テストユーザを登録
     const regRes = await request(serverUrl)
       .post('/registerUser')
-      .set(await buildSigV4Headers(serverUrl, '/registerUser', 'POST', { user, password }))
       .set('X-Revlm-JWT', `Bearer ${provisionalToken}`)
       .send({ user, password });
 

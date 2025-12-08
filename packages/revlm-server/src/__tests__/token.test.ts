@@ -10,7 +10,7 @@
 import request from 'supertest';
 const jwt = require('jsonwebtoken');
 import dotenv from 'dotenv';
-import { SetupTestEnvironmentResult, setupTestEnvironment, cleanupTestEnvironment, buildSigV4Headers } from './setupTestMongo';
+import { SetupTestEnvironmentResult, setupTestEnvironment, cleanupTestEnvironment } from './setupTestMongo';
 import { ensureDefined } from '@kedaruma/revlm-shared/utils/asserts';
 import path from 'path';
 
@@ -29,8 +29,7 @@ let testEnv: SetupTestEnvironmentResult;
 let SERVER_URL: string;
 
 async function signedPost(pathname: string, body: any, token?: string) {
-  const headers = await buildSigV4Headers(SERVER_URL, pathname, 'POST', body);
-  const req = request(SERVER_URL).post(pathname).set(headers);
+  const req = request(SERVER_URL).post(pathname);
   if (token) req.set('X-Revlm-JWT', `Bearer ${token}`);
   return req.send(body);
 }
@@ -47,10 +46,6 @@ beforeAll(async () => {
       usersCollectionName: ensureDefined(process.env.USERS_COLLECTION_NAME || 'users', 'USERS_COLLECTION_NAME is required'),
       jwtSecret: JWT_SECRET,
       provisionalLoginEnabled: false,
-      sigv4SecretKey: process.env.REVLM_SIGV4_SECRET_KEY,
-      sigv4AccessKey: process.env.REVLM_SIGV4_ACCESS_KEY,
-      sigv4Region: process.env.REVLM_SIGV4_REGION,
-      sigv4Service: process.env.REVLM_SIGV4_SERVICE,
       port: Number(process.env.PORT),
     }
   });
@@ -161,10 +156,6 @@ describe('/refresh-token with unlimited window', () => {
         jwtSecret: JWT_SECRET,
         provisionalLoginEnabled: false,
         refreshWindowSec: 0,
-        sigv4SecretKey: process.env.REVLM_SIGV4_SECRET_KEY,
-        sigv4AccessKey: process.env.REVLM_SIGV4_ACCESS_KEY,
-        sigv4Region: process.env.REVLM_SIGV4_REGION,
-        sigv4Service: process.env.REVLM_SIGV4_SERVICE,
         port: Number(process.env.PORT),
       }
     });
@@ -176,12 +167,10 @@ describe('/refresh-token with unlimited window', () => {
   });
 
   it('refreshes even long-expired token when window is unlimited', async () => {
-    const headers = await buildSigV4Headers(serverUrlUnlimited, '/refresh-token', 'POST', {});
     const expiredPayload = { userId: 'u3', exp: Math.floor(Date.now() / 1000) - 60 * 60 * 24 };
     const token = jwt.sign(expiredPayload as any, JWT_SECRET);
     const res = await request(serverUrlUnlimited)
       .post('/refresh-token')
-      .set(headers)
       .set('X-Revlm-JWT', `Bearer ${token}`)
       .send({});
     expect(res.status).toBe(200);

@@ -32,11 +32,6 @@ async function main() {
     jwtExpiresIn: getEnvOrUndefined('JWT_EXPIRES_IN'),
     refreshWindowSec: toNumber(getEnvOrUndefined('REFRESH_WINDOW_SEC')),
     port: toNumber(getEnvOrUndefined('PORT')),
-    sigv4SecretKey: getEnvOrUndefined('REVLM_SIGV4_SECRET_KEY'),
-    sigv4AccessKey: getEnvOrUndefined('REVLM_SIGV4_ACCESS_KEY'),
-    sigv4Region: getEnvOrUndefined('REVLM_SIGV4_REGION'),
-    sigv4Service: getEnvOrUndefined('REVLM_SIGV4_SERVICE'),
-    sigv4Required: toBool(getEnvOrUndefined('REVLM_SIGV4_REQUIRED')),
   };
 
   // Remove undefined entries so optional properties are omitted (satisfies exactOptionalPropertyTypes)
