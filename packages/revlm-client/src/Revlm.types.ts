@@ -1,7 +1,7 @@
 import {Long, Timestamp} from "bson";
 import type {User} from "@kedaruma/revlm-shared/models/user-types";
 
-export type RevlmErrorResponse = { ok: false; error: string };
+export type RevlmErrorResponse = { ok: false; error: string; code?: number; status?: number; reason?: string };
 export type LoginSuccess = { ok: true; token: string; user: User };
 export type LoginResponse = LoginSuccess | RevlmErrorResponse;
 export type ProvisionalLoginSuccess = { ok: true; token: string; user: Record<string, never> };

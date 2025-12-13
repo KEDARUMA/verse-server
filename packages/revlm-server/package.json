@@ -1,6 +1,6 @@
 {
   "name": "@kedaruma/revlm-server",
-  "version": "1.0.21",
+  "version": "1.0.28",
   "private": false,
   "description": "Self-hosted replacement for MongoDB Realm App Services that brokers auth and MongoDB calls.",
   "keywords": [
@@ -38,6 +38,7 @@
     "@kedaruma/revlm-shared": "workspace:*"
   },
   "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
     "mongodb-memory-server": "^8.12.2"
   }
 }

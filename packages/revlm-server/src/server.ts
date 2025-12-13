@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { User } from '@kedaruma/revlm-shared/models/user-types';
 import { AuthServer } from '@kedaruma/revlm-shared/auth-token';
 import type { MongoClient as MongoClientType } from 'mongodb';
+import crypto from 'crypto';
 const express = require('express');
 const cors = require('cors');
 import { MongoClient } from 'mongodb';
@@ -37,12 +38,15 @@ export interface ServerConfig {
   jwtExpiresIn?: string;
   refreshWindowSec?: number;
   port: number;
+  refreshSecretSigningKey: string;
+  debugRequestLog?: boolean;
 }
 
 const serverConfigDefaults: Partial<ServerConfig> = {
   provisionalLoginEnabled: false,
   jwtExpiresIn: '1h',
   refreshWindowSec: 300,
+  debugRequestLog: false,
 };
 
 let serverConfig: ServerConfig | undefined;
@@ -50,6 +54,7 @@ let plpaServer: AuthServer | undefined;
 let JWT_SECRET: string | undefined;
 let JWT_EXPIRES_IN: string | undefined;
 let REFRESH_WINDOW_SEC: number | undefined;
+let DEBUG_REQUEST_LOG: boolean | undefined;
 let PROVISIONAL_LOGIN_ENABLED: boolean | undefined;
 let PROVISIONAL_AUTH_ID: string | undefined;
 let PROVISIONAL_AUTH_SECRET_MASTER: string | undefined;
@@ -57,6 +62,7 @@ let PROVISIONAL_AUTH_DOMAIN: string | undefined;
 let USERS_DB_NAME: string | undefined;
 let USERS_COLLECTION: string | undefined;
 let MONGO_URI: string | undefined;
+let REFRESH_SECRET_SIGNING_KEY: string | undefined;
 let server: any;
 
 // Helper to ensure server started
@@ -74,10 +80,72 @@ function sendResponse(req: any, res: any, obj: any, status = 200) {
   if (status) res.status(status);
   const acceptHeader = (req.headers && (req.headers['accept'] || req.headers['Accept'])) || '';
   const explicitlyWantsEjson = typeof acceptHeader === 'string' && acceptHeader.includes('application/ejson');
+  (res as any).locals = (res as any).locals || {};
+  (res as any).locals.revlmResponse = { status: status || res.statusCode, body: obj };
   if (explicitlyWantsEjson) {
     res.type('application/ejson').send(EJSON.stringify(obj));
   } else {
     res.json(obj);
+  }
+}
+
+const REFRESH_SECRET_TTL_SEC = 300;
+const REFRESH_COOKIE_NAME = 'revlm_refresh';
+const ERROR_CODES = {
+  authFailed: 4349,
+  tokenExpired: 40101,
+  refreshWindowExceeded: 40102,
+  provisionalForbidden: 40301,
+  invalidToken: 40001,
+};
+
+function parseCookies(req: Request): Record<string, string> {
+  const header = req.headers?.cookie;
+  if (!header) return {};
+  return header.split(';').map((c) => c.trim()).filter(Boolean).reduce((acc, part) => {
+    const eq = part.indexOf('=');
+    if (eq === -1) return acc;
+    const k = decodeURIComponent(part.slice(0, eq));
+    const v = decodeURIComponent(part.slice(eq + 1));
+    acc[k] = v;
+    return acc;
+  }, {} as Record<string, string>);
+}
+
+async function issueRefreshSecret(userId: ObjectIdType): Promise<{ signed: string; issuedAt: number }> {
+  const oid = toObjectId(userId);
+  if (!oid) throw new Error('invalid_user_id');
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const secret = crypto.randomBytes(32).toString('base64url');
+  const signed = jwt.sign({ sub: String(userId), rs: secret, iat: issuedAt }, REFRESH_SECRET_SIGNING_KEY as string, { algorithm: 'HS256' });
+  const refreshSecretHash = await bcrypt.hash(secret, 10);
+  const userCol = getClient().db(USERS_DB_NAME as string).collection(USERS_COLLECTION as string);
+  await userCol.updateOne({ _id: oid }, { $set: { refreshSecretHash, refreshSecretIssuedAt: issuedAt } });
+  return { signed, issuedAt };
+}
+
+function setRefreshCookie(res: Response, signed: string) {
+  // HttpOnly Secure SameSite=Lax cookie scoped to /refresh-token
+  const secure = process.env.NODE_ENV !== 'test';
+  (res as any).cookie(REFRESH_COOKIE_NAME, signed, {
+    httpOnly: true,
+    secure,
+    sameSite: 'lax',
+    path: '/refresh-token',
+    maxAge: REFRESH_SECRET_TTL_SEC * 1000,
+  });
+}
+
+function ensureRefreshSecretValid(user: any, payload: any) {
+  const now = Math.floor(Date.now() / 1000);
+  if (!payload || typeof payload !== 'object' || !payload.iat || !payload.rs || !payload.sub) {
+    throw new Error('refresh_secret_invalid');
+  }
+  if (now - payload.iat > REFRESH_SECRET_TTL_SEC) {
+    throw new Error('refresh_secret_expired');
+  }
+  if (!user || !user.refreshSecretHash || user.refreshSecretIssuedAt !== payload.iat) {
+    throw new Error('refresh_secret_mismatch');
   }
 }
 
@@ -126,75 +194,92 @@ function verifyJwtToken(token: string): { ok: true; payload: any } | { ok: false
   }
 }
 
-// Helper: refresh an expired JWT within a grace window. Does not refresh provisional tokens.
-function refreshJwtToken(token: string): { ok: true; token: string; expiresIn: string } | { ok: false, reason: 'not_expired' | 'invalid_token' | 'provisional_forbidden' | 'refresh_window_exceeded' } {
-  ensureStarted();
-  // If token is still valid, don't refresh
-  try {
-    jwt.verify(token, JWT_SECRET as string);
-    return { ok: false, reason: 'not_expired' };
-  } catch (err: any) {
-    console.log('refreshJwtToken verify error - Error name:', err && err.name, 'Error message:', err && err.message);
-    if (!err || err.name !== 'TokenExpiredError') return { ok: false, reason: 'invalid_token' };
-    // Token expired — verify signature ignoring expiration
-    let payload: any;
-    try {
-      payload = jwt.verify(token, JWT_SECRET as string, { ignoreExpiration: true });
-    } catch (_e: any) {
-      console.log('refreshJwtToken ignoreExpiration verify error - Error name:', _e && _e.name, 'Error message:', _e && _e.message);
-      return { ok: false, reason: 'invalid_token' };
-    }
-    // Do not refresh provisional tokens
-    if (payload && payload.userType === 'provisional') return { ok: false, reason: 'provisional_forbidden' };
-    // Check expiry field and grace window
-    const exp = payload && payload.exp ? Number(payload.exp) : undefined;
-    if (!exp) return { ok: false, reason: 'invalid_token' };
-    const now = Math.floor(Date.now() / 1000);
-    const refreshWindow = REFRESH_WINDOW_SEC as number;
-    if (refreshWindow > 0 && now - exp > refreshWindow) return { ok: false, reason: 'refresh_window_exceeded' };
-    // Remove iat/exp/nbf before signing new token
-    const { iat, exp: _exp, nbf, ...rest } = payload as any;
-    const expiresIn = JWT_EXPIRES_IN as string;
-    const newToken = jwt.sign(rest, JWT_SECRET as string, { expiresIn });
-    return { ok: true, token: newToken, expiresIn };
-  }
-}
-
 // Endpoint: token verification API
-app.post('/verify-token', (req: Request, res: Response) => {
-  const header = req.headers['authorization'] as string | undefined;
-  const customHeader = req.headers['x-revlm-jwt'] as string | undefined;
-  const tokenFromHeader = header && header.split(' ')[1];
-  const tokenFromCustom = customHeader && customHeader.split(' ')[1];
-  const token = (req.body && req.body.token) || tokenFromCustom || tokenFromHeader;
-  if (!token) return sendResponse(req, res, { ok: false, reason: 'no_token' }, 400);
-  const result = verifyJwtToken(token);
-  if (result.ok) return sendResponse(req, res, { ok: true, payload: result.payload }, 200);
-  const reason = (result as any).reason;
-  if (reason === 'token_expired') return sendResponse(req, res, { ok: false, reason: 'token_expired' }, 401);
-  return sendResponse(req, res, { ok: false, reason: 'invalid_token' }, 403);
-});
+  app.post('/verify-token', (req: Request, res: Response) => {
+    const header = req.headers['authorization'] as string | undefined;
+    const customHeader = req.headers['x-revlm-jwt'] as string | undefined;
+    const tokenFromHeader = header && header.split(' ')[1];
+    const tokenFromCustom = customHeader && customHeader.split(' ')[1];
+    const token = (req.body && req.body.token) || tokenFromCustom || tokenFromHeader;
+    if (!token) return sendResponse(req, res, { ok: false, reason: 'no_token', code: ERROR_CODES.invalidToken }, 400);
+    const result = verifyJwtToken(token);
+    if (result.ok) return sendResponse(req, res, { ok: true, payload: result.payload }, 200);
+    const reason = (result as any).reason;
+    if (reason === 'token_expired') return sendResponse(req, res, { ok: false, reason: 'token_expired', code: ERROR_CODES.tokenExpired }, 401);
+    return sendResponse(req, res, { ok: false, reason: 'invalid_token', code: ERROR_CODES.invalidToken }, 403);
+  });
 
 // Endpoint: refresh an expired token within grace window
-app.post('/refresh-token', (req: Request, res: Response) => {
-  const header = req.headers['authorization'] as string | undefined;
-  const customHeader = req.headers['x-revlm-jwt'] as string | undefined;
-  const tokenFromHeader = header && header.split(' ')[1];
-  const tokenFromCustom = customHeader && customHeader.split(' ')[1];
-  const token = (req.body && req.body.token) || tokenFromCustom || tokenFromHeader;
-  if (!token) return sendResponse(req, res, { ok: false, reason: 'no_token' }, 400);
-  const result = refreshJwtToken(token);
-  if (result.ok) return sendResponse(req, res, { ok: true, token: result.token, expiresIn: result.expiresIn }, 200);
-  // Map reasons to status
-  switch ((result as any).reason) {
-    case 'not_expired':
-      return sendResponse(req, res, { ok: false, reason: 'not_expired' }, 400);
-    case 'provisional_forbidden':
-      return sendResponse(req, res, { ok: false, reason: 'provisional_forbidden' }, 403);
-    case 'refresh_window_exceeded':
-      return sendResponse(req, res, { ok: false, reason: 'refresh_window_exceeded' }, 403);
-    default:
-      return sendResponse(req, res, { ok: false, reason: 'invalid_token' }, 403);
+  app.post('/refresh-token', async (req: Request, res: Response) => {
+    const header = req.headers['authorization'] as string | undefined;
+    const customHeader = req.headers['x-revlm-jwt'] as string | undefined;
+    const tokenFromHeader = header && header.split(' ')[1];
+    const tokenFromCustom = customHeader && customHeader.split(' ')[1];
+    const token = (req.body && req.body.token) || tokenFromCustom || tokenFromHeader;
+    if (!token) return sendResponse(req, res, { ok: false, reason: 'no_token', code: ERROR_CODES.invalidToken }, 400);
+    try {
+      let decoded: any;
+      try {
+        jwt.verify(token, JWT_SECRET as string);
+        return sendResponse(req, res, { ok: false, reason: 'not_expired' }, 400);
+      } catch (err: any) {
+        console.log('refresh-token verify error - name:', err && err.name, 'message:', err && err.message);
+        if (!err || err.name !== 'TokenExpiredError') {
+          return sendResponse(req, res, { ok: false, reason: 'invalid_token', code: ERROR_CODES.invalidToken }, 403);
+        }
+        decoded = jwt.verify(token, JWT_SECRET as string, { ignoreExpiration: true });
+      }
+
+      if (!decoded || !decoded._id) return sendResponse(req, res, { ok: false, reason: 'invalid_token', code: ERROR_CODES.invalidToken }, 403);
+      if (decoded.userType === 'provisional') return sendResponse(req, res, { ok: false, reason: 'provisional_forbidden', code: ERROR_CODES.provisionalForbidden }, 403);
+
+      const cookies = parseCookies(req);
+      const refreshCookie = cookies[REFRESH_COOKIE_NAME];
+      if (!refreshCookie) return sendResponse(req, res, { ok: false, reason: 'no_refresh_secret', code: ERROR_CODES.invalidToken }, 401);
+
+      let refreshPayload: any;
+      try {
+        refreshPayload = jwt.verify(refreshCookie, REFRESH_SECRET_SIGNING_KEY as string, { algorithms: ['HS256'], ignoreExpiration: true });
+      } catch (_e: any) {
+        console.log('refresh-token refresh secret verify error - name:', _e && _e.name, 'message:', _e && _e.message);
+        return sendResponse(req, res, { ok: false, reason: 'refresh_secret_invalid', code: ERROR_CODES.invalidToken }, 403);
+      }
+
+    const userCol = getClient().db(USERS_DB_NAME as string).collection(USERS_COLLECTION as string);
+    const subId = toObjectId(refreshPayload.sub);
+    if (!subId) return sendResponse(req, res, { ok: false, reason: 'invalid_token' }, 403);
+    const user = await userCol.findOne({ _id: subId });
+    if (!user) return sendResponse(req, res, { ok: false, reason: 'invalid_token', code: ERROR_CODES.invalidToken }, 403);
+    if (String(decoded._id) !== String(user._id)) return sendResponse(req, res, { ok: false, reason: 'invalid_token', code: ERROR_CODES.invalidToken }, 403);
+
+    try {
+      ensureRefreshSecretValid(user, refreshPayload);
+    } catch (err: any) {
+      const reason = err?.message || 'refresh_secret_invalid';
+      const status = reason === 'refresh_secret_expired' ? 401 : 403;
+      const code = reason === 'refresh_secret_expired' ? ERROR_CODES.tokenExpired : ERROR_CODES.invalidToken;
+      return sendResponse(req, res, { ok: false, reason, code }, status);
+    }
+
+    const match = await bcrypt.compare(refreshPayload.rs, user.refreshSecretHash || '');
+    if (!match) return sendResponse(req, res, { ok: false, reason: 'refresh_secret_invalid', code: ERROR_CODES.invalidToken }, 403);
+
+    const exp = decoded && decoded.exp ? Number(decoded.exp) : undefined;
+    const now = Math.floor(Date.now() / 1000);
+    const refreshWindow = REFRESH_WINDOW_SEC as number;
+    if (refreshWindow > 0 && exp && now - exp > refreshWindow) {
+      return sendResponse(req, res, { ok: false, reason: 'refresh_window_exceeded', code: ERROR_CODES.refreshWindowExceeded }, 403);
+    }
+
+    const { iat, exp: _exp, nbf, ...rest } = decoded as any;
+    const expiresIn = JWT_EXPIRES_IN as string;
+    const newToken = jwt.sign(rest, JWT_SECRET as string, { expiresIn });
+    const refreshed = await issueRefreshSecret(user._id);
+    setRefreshCookie(res, refreshed.signed);
+    return sendResponse(req, res, { ok: true, token: newToken, expiresIn }, 200);
+  } catch (err: any) {
+    console.log('refresh-token unexpected error - name:', err && err.name, 'message:', err && err.message);
+    return sendResponse(req, res, { ok: false, reason: 'invalid_token' }, 500);
   }
 });
 
@@ -259,6 +344,7 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
   if (!merged.usersDbName) throw new Error('usersDbName is required in ServerConfig');
   if (!merged.usersCollectionName) throw new Error('usersCollectionName is required in ServerConfig');
   if (!merged.jwtSecret) throw new Error('jwtSecret is required in ServerConfig');
+  if (!merged.refreshSecretSigningKey) throw new Error('refreshSecretSigningKey is required in ServerConfig');
 
   // provisional checks
   const provisionalEnabled = !!merged.provisionalLoginEnabled;
@@ -280,6 +366,8 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
   JWT_SECRET = merged.jwtSecret;
   JWT_EXPIRES_IN = merged.jwtExpiresIn!
   REFRESH_WINDOW_SEC = merged.refreshWindowSec!;
+  REFRESH_SECRET_SIGNING_KEY = merged.refreshSecretSigningKey;
+  DEBUG_REQUEST_LOG = !!merged.debugRequestLog;
 
   if (PROVISIONAL_LOGIN_ENABLED) {
     plpaServer = new AuthServer({ secretMaster: PROVISIONAL_AUTH_SECRET_MASTER as string, authDomain: PROVISIONAL_AUTH_DOMAIN as string });
@@ -317,6 +405,29 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
     next();
   });
 
+  if (DEBUG_REQUEST_LOG) {
+    app.use((req: any, res: any, next: any) => {
+      const started = Date.now();
+      res.on('finish', () => {
+        const locals = (res as any).locals || {};
+        const body = locals.revlmResponse ? locals.revlmResponse.body : undefined;
+        const ok = body && typeof body === 'object' ? (body as any).ok : undefined;
+        const reason = body && typeof body === 'object' ? ((body as any).reason || (body as any).error) : undefined;
+        const code = body && typeof body === 'object' ? (body as any).code : undefined;
+        console.log('requestLog', {
+          method: req.method,
+          path: req.originalUrl || req.url,
+          status: res.statusCode,
+          ok,
+          reason,
+          code,
+          durationMs: Date.now() - started,
+        });
+      });
+      next();
+    });
+  }
+
   if (PROVISIONAL_LOGIN_ENABLED) {
     app.post('/provisional-login', async (req: Request, res: Response) => {
       const { authId, password } = req.body;
@@ -349,11 +460,13 @@ export async function startServer(config: ServerConfig): Promise<http.Server> {
     try {
       const userCol = getClient().db(USERS_DB_NAME as string).collection(USERS_COLLECTION as string);
       const user = await userCol.findOne({ authId });
-      if (!user || !user.passwordHash) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
+      if (!user || !user.passwordHash) return sendResponse(req, res, { ok: false, error: 'Authentication failed', code: ERROR_CODES.authFailed }, 401);
       const valid = await bcrypt.compare(password, user.passwordHash);
-      if (!valid) return sendResponse(req, res, { ok: false, error: 'Authentication failed' }, 401);
+      if (!valid) return sendResponse(req, res, { ok: false, error: 'Authentication failed', code: ERROR_CODES.authFailed }, 401);
       const { _id, userType, roles } = user;
       const token = jwt.sign({ _id, userType, roles }, JWT_SECRET as string, { expiresIn: JWT_EXPIRES_IN as string });
+      const refreshSecret = await issueRefreshSecret(_id);
+      setRefreshCookie(res, refreshSecret.signed);
       try {
         const decoded = jwt.decode(token);
         console.log('TOKEN PAYLOAD (login):', decoded);

@@ -35,6 +35,7 @@ export async function setupTestEnvironment(
   options: SetupTestEnvironmentOptions
 ): Promise<SetupTestEnvironmentResult> {
 
+  const refreshSecretSigningKey = options.serverConfig.refreshSecretSigningKey || process.env.REFRESH_SECRET_SIGNING_KEY || 'test-refresh-signing';
   // Setup MongoDB (start MongoMemoryServer if mongoUri is not provided)
   // MongoDB をセットアップ（mongoUri が未指定の場合は MongoMemoryServer を起動）
   let mongoUri = options.serverConfig.mongoUri;
@@ -56,7 +57,10 @@ export async function setupTestEnvironment(
 
   // Start the server with MongoDB URI
   // MongoDB URI を渡してサーバーを起動
-  const server: http.Server = await startServer({ ...options.serverConfig, mongoUri } as ServerConfig);
+  // ensure previous server is stopped so new config takes effect per test suite
+  // 以前のサーバーを停止して設定を再適用
+  await stopServer();
+  const server: http.Server = await startServer({ ...options.serverConfig, mongoUri, refreshSecretSigningKey } as ServerConfig);
 
   // Get server URL from actual listening port
   // 実際のリスニングポートから serverUrl を取得

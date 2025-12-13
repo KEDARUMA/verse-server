@@ -68,6 +68,10 @@ function main() {
   for (const key of ordered) {
     const info = targets[key];
     bumpPackage(key);
+    // Fresh build to avoid旧dist混入
+    run(`pnpm --filter ${info.name} run clean`);
+    // Reinstall package-local deps removed by clean
+    run(`pnpm --filter ${info.name} install`);
     run(`pnpm --filter ${info.name} run build`);
     run(`pnpm publish --filter ${info.name} --no-git-checks --access public`);
   }

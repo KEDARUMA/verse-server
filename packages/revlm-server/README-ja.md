@@ -18,6 +18,7 @@ pnpm start   # dist/start.js を起動
 - `USERS_DB_NAME` / `usersDbName`
 - `USERS_COLLECTION_NAME` / `usersCollectionName`
 - `JWT_SECRET` / `jwtSecret`
+- `REFRESH_SECRET_SIGNING_KEY` / `refreshSecretSigningKey`（5分TTLのリフレッシュ用シークレットを署名するHMAC鍵）
 - 仮ログイン関連 (`provisionalLoginEnabled`, `provisionalAuthId` など)
 
 ## スクリプト

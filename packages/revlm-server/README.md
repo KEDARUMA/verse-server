@@ -18,6 +18,7 @@ Set the following environment variables or values in a `.env` file before starti
 - `USERS_DB_NAME` / `usersDbName`
 - `USERS_COLLECTION_NAME` / `usersCollectionName`
 - `JWT_SECRET` / `jwtSecret`
+- `REFRESH_SECRET_SIGNING_KEY` / `refreshSecretSigningKey` (HMAC key for 5-minute refresh secret cookie rotation)
 - Optional provisional auth settings (`provisionalLoginEnabled`, `provisionalAuthId`, etc.)
 
 ## Scripts

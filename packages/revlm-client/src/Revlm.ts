@@ -317,9 +317,18 @@ class App {
       throw new Error('Unsupported credentials type');
     }
     const res = await this.__revlm.login(cred.email, cred.password);
+    console.log('### App:login res:', res)
     if (!res || !res.ok || !res.token) {
       const errMsg = res && !res.ok ? res.error : 'login failed';
-      throw new Error(errMsg);
+      const err: any = new Error(errMsg);
+      const anyRes: any = res;
+      if (anyRes && typeof anyRes === 'object') {
+        if (anyRes.code !== undefined) err.code = anyRes.code;
+        if (anyRes.status !== undefined) err.status = anyRes.status;
+        if (anyRes.reason !== undefined) err.reason = anyRes.reason;
+        err.response = anyRes;
+      }
+      throw err;
     }
     this.__revlm.setToken(res.token as string);
     const user = new User(this, res.token as string, res.user);

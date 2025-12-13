@@ -43,6 +43,7 @@ describe('Revlm.provisionalLogin (integration)', () => {
         provisionalAuthId: process.env.PROVISIONAL_AUTH_ID as string,
         provisionalAuthSecretMaster: process.env.PROVISIONAL_AUTH_SECRET_MASTER as string,
         provisionalAuthDomain: process.env.PROVISIONAL_AUTH_DOMAIN as string,
+        refreshSecretSigningKey: process.env.REFRESH_SECRET_SIGNING_KEY as string,
         port: Number(process.env.PORT),
       }
     });

@@ -59,6 +59,7 @@ beforeAll(async () => {
       provisionalAuthId: PROVISIONAL_AUTH_ID,
       provisionalAuthSecretMaster: PROVISIONAL_AUTH_SECRET_MASTER,
       provisionalAuthDomain: PROVISIONAL_AUTH_DOMAIN,
+      refreshSecretSigningKey: ensureDefined(process.env.REFRESH_SECRET_SIGNING_KEY, 'REFRESH_SECRET_SIGNING_KEY is required'),
       port: Number(process.env.PORT),
     },
   });
